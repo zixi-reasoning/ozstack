@@ -30,8 +30,8 @@ export default defineConfig({
   themeConfig: {
     logo: '/logo.svg',
     nav: [
-      { text: '古法编程大力玩', link: '/gufa/', activeMatch: '^/gufa/' },
-      { text: '计算科学大力玩', link: '/jisuan/', activeMatch: '^/jisuan/' },
+      { text: '古法编程大力玩', link: '/gufa/introduction/', activeMatch: '^/gufa/' },
+      { text: '计算科学大力丸', link: '/jisuan/introduction/', activeMatch: '^/jisuan/' },
     ],
     search: {
       provider: 'local',

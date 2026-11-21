@@ -8,13 +8,13 @@ hero:
 ---
 
 <div class="oz-links">
-  <a class="oz-link" href="./gufa/">
+  <a class="oz-link" href="./gufa/introduction/">
     <span class="oz-link-no">01</span>
     <span class="oz-link-title">古法编程大力玩</span>
   </a>
-  <a class="oz-link" href="./jisuan/">
+  <a class="oz-link" href="./jisuan/introduction/">
     <span class="oz-link-no">02</span>
-    <span class="oz-link-title">计算科学大力玩</span>
+    <span class="oz-link-title">计算科学大力丸</span>
   </a>
 </div>
 

@@ -10,3 +10,7 @@ npm-debug.log*
 archive/backend/
 
 skills-lock.json
+
+# 私有写作计划，不进入公开仓库
+AGENT.md
+AGENT-JISUAN.md

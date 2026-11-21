@@ -12,6 +12,7 @@ export const BOOKS = [
     start: '/gufa/introduction/',
     chapters: [
       { text: '导读', link: '/gufa/introduction/' },
+      { text: '1. 字节与地址', link: '/gufa/ch1/' },
     ],
   },
   {

@@ -14,3 +14,6 @@ skills-lock.json
 # 私有写作计划，不进入公开仓库
 /AGENT.md
 /AGENT-JISUAN.md
+
+# 本地开发说明，不进入公开仓库
+/CLAUDE.md

@@ -6,7 +6,7 @@
 
 兔狲大力玩（英文名 OzStack）是籽溪的两本书，也是这两本书的静态站点。两本书共用一台机器：**Aletheia**，中文诨名“大力丸一号”。
 
-- **《古法编程大力玩》**：从一块 512 字节的连续数组开始，四卷、约四十章，造出一台 256 KiB 的计算机。它不加载 libc、libm、动态链接器，也不启动第二个运行时。第三卷最后，用 C 写成的机器会直接读懂一小片 C。
+- **《古法编程大力玩》**：从一块静态字节数组开始，四卷、约四十章，造出一台 256 KiB 的计算机。它不加载 libc、libm、动态链接器，也不启动第二个运行时。第三卷最后，用 C 写成的机器会直接读懂一小片 C。
 - **《计算科学大力丸》**：机器造好之后，搬进实验室。四卷、四十章，用同一台机器做数值实验、迭代、复杂度、概率和学习的见证。它不是第二本算法教程，而是一本计算科学实验教材。数学负责讲述，机器负责作证。
 
 两本书都没有图。正文只有汉字、LaTeX、C 代码和终端字符输出。
@@ -15,7 +15,7 @@
 
 | 书 | 导读 | 在线地址 | 状态 |
 | --- | --- | --- | --- |
-| 古法编程大力玩 | [导读](./docs/gufa/introduction/index.md) | [打开](https://zixi-reasoning.github.io/ozstack/gufa/introduction/) | 导读完成，正文按卷推进 |
+| 古法编程大力玩 | [导读](./docs/gufa/introduction/index.md) | [打开](https://zixi-reasoning.github.io/ozstack/gufa/introduction/) | 导读、第一章完成，正文按卷推进 |
 | 计算科学大力丸 | [导读](./docs/jisuan/introduction/index.md) | [打开](https://zixi-reasoning.github.io/ozstack/jisuan/introduction/) | 导读完成，正文按卷推进 |
 
 第一册四卷：
@@ -57,7 +57,7 @@
 
 ## 目录结构
 
-章节目录照 Datawhale `repo-template`：一本书一个目录，一章一个英文标题文件夹，文件夹里放 `index.md`。
+章节目录照 Datawhale `repo-template`：一本书一个目录，一章一个文件夹，文件夹名按章号排，里面放 `index.md`。
 
 ```text
 docs/
@@ -65,6 +65,8 @@ docs/
   gufa/
     introduction/
       index.md                  古法编程大力玩，导读
+    ch1/
+      index.md                  第一章，字节与地址
   jisuan/
     introduction/
       index.md                  计算科学大力丸，导读
@@ -82,7 +84,7 @@ assets/
   portrait.jpg                  首页半色调肖像的源照片
 ```
 
-- 每章一个英文标题文件夹，里面放 `index.md`。文件夹名用小写连字符，例如 `bytes-and-addresses`。
+- 每章一个文件夹，里面放 `index.md`。文件夹名用 `ch1`、`ch2` 这样的编号，第一章是 `ch1`。
 - 加一章：在书目录下建文件夹，写 `index.md`，再去 `books.mjs` 加一条。左栏只列到章。
 - 加一节：直接在这一章里写 `## 2.3 ...`，右栏大纲会自动出现，不用另建文件。
 - 每本书的 `start` 指向第一章。书名和首页入口直接进第一章，不设书主页。
@@ -117,6 +119,7 @@ DOCS_BASE=/ozstack/ npm run docs:build
 | 路径 | 用途 |
 | --- | --- |
 | `docs/gufa/introduction/index.md` | 第一册导读：AI 时代为什么还要从字节和数组手搓 |
+| `docs/gufa/ch1/index.md` | 第一章：字节与地址，定义 AletheiaByte |
 | `docs/jisuan/introduction/index.md` | 第二册导读：机器造好之后怎样用它做数学 |
 | `docs/index.md` | 首页、两本书入口、手搓大力丸 |
 | `docs/.vitepress/books.mjs` | 两本书的章目录 |

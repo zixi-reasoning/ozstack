@@ -11,9 +11,5 @@
   "devDependencies": {
     "markdown-it-mathjax3": "^4.3.2",
     "vitepress": "^1.6.4"
-  },
-  "dependencies": {
-    "viewerjs": "^1.15.2",
-    "vitepress-plugin-image-viewer": "^1.1.6"
   }
 }

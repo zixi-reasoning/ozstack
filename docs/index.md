@@ -2,8 +2,7 @@
 layout: home
 
 hero:
-  name: OzStack
-  text: 奥兹大力玩
+  name: 兔狲大力玩
   tagline: AI 时代的编程大力玩
 ---
 

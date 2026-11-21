@@ -1,10 +1,10 @@
-# OzStack 奥兹大力玩
+# 兔狲大力玩
 
 > AI 时代的编程大力玩。
 >
 > 不用框架，不用花活，一行一行手搓。
 
-OzStack 是籽溪的两本书，也是这两本书的静态站点。两本书共用一台机器：**Aletheia**，中文诨名“大力丸一号”。
+兔狲大力玩是籽溪的两本书，也是这两本书的静态站点。两本书共用一台机器：**Aletheia**，中文诨名“大力丸一号”。
 
 - **《古法编程大力玩》**：从一块 512 字节的连续数组开始，四卷、约四十章，造出一台 256 KiB 的计算机。它不加载 libc、libm、动态链接器，也不启动第二个运行时。第三卷最后，用 C 写成的机器会直接读懂一小片 C。
 - **《计算科学大力丸》**：机器造好之后，搬进实验室。四卷、四十章，用同一台机器做数值实验、迭代、复杂度、概率和学习的见证。它不是第二本算法教程，而是一本计算科学实验教材。数学负责讲述，机器负责作证。
@@ -104,7 +104,7 @@ npm run docs:dev
 npm run docs:build
 ```
 
-GitHub Pages 项目站挂在 <https://zixi-reasoning.github.io/ozstack/>。工作流在 `.github/workflows/deploy.yml`，推送到 `main` 自动构建部署。构建时传入子路径：
+GitHub Pages 项目站挂在 <https://zixi-reasoning.github.io/ozstack/>。仓库名和 Pages 路径目前仍是 `ozstack`，所以旧链接不会断。工作流在 `.github/workflows/deploy.yml`，推送到 `main` 自动构建部署。构建时传入子路径：
 
 ```bash
 DOCS_BASE=/ozstack/ npm run docs:build

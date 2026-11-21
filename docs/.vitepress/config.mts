@@ -7,8 +7,8 @@ const base = process.env.DOCS_BASE || '/'
 
 export default defineConfig({
   lang: 'zh-CN',
-  title: 'OzStack 奥兹大力玩',
-  description: '双栏理论社区。',
+  title: '兔狲大力玩',
+  description: '兔狲大力玩：AI 时代的编程大力玩。',
   base,
   appearance: false,
   markdown: {

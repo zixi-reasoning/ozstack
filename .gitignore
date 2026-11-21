@@ -1,0 +1,12 @@
+node_modules
+docs/.vitepress/cache
+docs/.vitepress/dist
+.vitepress/
+.claude/
+.env
+.env.example
+.DS_Store
+npm-debug.log*
+archive/backend/
+
+skills-lock.json

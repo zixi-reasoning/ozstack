@@ -1,0 +1,930 @@
+/* --------------------------------------------------------------------------
+   OzStack 奥兹大力玩
+
+   报头 Chomsky · 正文 Newsreader / Noto Serif SC
+   灰绿纸面 · 单色半调网点 · 小方印
+   -------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Chomsky";
+  src: url("/fonts/Chomsky.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* --------------------------------------------------------------------------
+   色板与排版变量
+   -------------------------------------------------------------------------- */
+
+:root,
+:root:where(:lang(zh)) {
+  /* 瓷砖 */
+  --ct-tile-0: #eef2ec;
+  --ct-tile-1: #dbe4dc;
+  --ct-tile-2: #cbd8cd;
+  --ct-tile-edge: #b4c7b9;
+  --ct-green: #4f6e5b;
+  --ct-green-deep: #3d5748;
+  --ct-green-solid: #587763;
+  --ct-green-soft: rgba(79, 110, 91, 0.12);
+  --ct-rule: #d7dfd6;
+  --ct-rule-soft: #e3e9e1;
+  --ct-wash: rgba(203, 216, 205, 0.24);
+
+  /* 侧栏与动效 */
+  --oz-side-width: 268px;
+  --oz-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* 纸 */
+  --ct-paper: #f7f8f4;
+  --ct-paper-deep: #eef2eb;
+  --ct-ink: #2b3630;
+
+  /* 字：Newsreader 排拉丁，Noto Serif SC 排中文；报头单独用 Chomsky */
+  --ct-serif: "Newsreader", "Noto Serif SC", "Songti SC", "STSong",
+    "SimSun", "Noto Serif CJK SC", "Source Han Serif SC", "Times New Roman",
+    serif;
+  --ct-masthead: "Chomsky", "Noto Serif SC", "Songti SC", serif;
+
+  /* 网点：细密的单色半调，用作分隔与边角 */
+  --ct-dot-ink: rgba(88, 119, 99, 0.52);
+  --ct-dot-soft: rgba(88, 119, 99, 0.3);
+  --ct-halftone: radial-gradient(
+    circle,
+    var(--ct-dot-ink) 1.05px,
+    transparent 1.3px
+  );
+  --ct-halftone-soft: radial-gradient(
+    circle,
+    var(--ct-dot-soft) 1.05px,
+    transparent 1.3px
+  );
+
+  /* VitePress：底色与文字 */
+  --vp-c-bg: var(--ct-paper);
+  --vp-c-bg-alt: var(--ct-paper-deep);
+  --vp-c-bg-elv: #fbfcf8;
+  --vp-c-bg-soft: var(--ct-paper-deep);
+  --vp-c-divider: #d2dcd2;
+  --vp-c-border: #c2cfc5;
+  --vp-c-gutter: #e2e8e1;
+  --vp-c-text-1: var(--ct-ink);
+  --vp-c-text-2: #58665c;
+  --vp-c-text-3: #849186;
+
+  /* VitePress：品牌色 */
+  --vp-c-brand-1: var(--ct-green);
+  --vp-c-brand-2: var(--ct-green-deep);
+  --vp-c-brand-3: var(--ct-green-solid);
+  --vp-c-brand-soft: var(--ct-green-soft);
+  --vp-c-brand: var(--ct-green);
+
+  /* VitePress：中性色也收进灰绿 */
+  --vp-c-default-1: #97ac9d;
+  --vp-c-default-2: #b3c4b6;
+  --vp-c-default-3: #dde6de;
+  --vp-c-default-soft: rgba(79, 110, 91, 0.1);
+
+  /* VitePress：字体 */
+  --vp-font-family-base: var(--ct-serif);
+  --vp-font-family-mono: "SFMono-Regular", "Menlo", "Monaco", "Consolas",
+    "Songti SC", monospace;
+
+  /* VitePress：导航与侧栏 */
+  --vp-nav-bg-color: rgba(247, 248, 244, 0.92);
+  --vp-local-nav-bg-color: rgba(247, 248, 244, 0.94);
+  --vp-sidebar-bg-color: var(--ct-paper);
+  --vp-sidebar-width: var(--oz-side-width);
+
+  /* VitePress：首页与按钮 */
+  --vp-home-hero-name-color: var(--ct-green-deep);
+  --vp-home-hero-name-background: transparent;
+  --vp-button-brand-bg: #9db5a5;
+  --vp-button-brand-hover-bg: #a9c0b1;
+  --vp-button-brand-active-bg: #8ea696;
+  --vp-button-brand-text: var(--ct-ink);
+  --vp-button-alt-bg: #e3eae3;
+  --vp-button-alt-hover-bg: #d7e0d7;
+  --vp-button-alt-active-bg: #cbd6cc;
+}
+
+/* --------------------------------------------------------------------------
+   底子
+   -------------------------------------------------------------------------- */
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  color: var(--vp-c-text-1);
+  font-family: var(--ct-serif);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(180, 199, 185, 0.55);
+  color: var(--ct-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ct-tile-edge);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   顶栏
+   -------------------------------------------------------------------------- */
+
+.VPNavBar.VPNavBar {
+  border-bottom: 1px solid var(--vp-c-divider);
+  background-color: var(--vp-nav-bg-color);
+  backdrop-filter: saturate(1.1) blur(8px);
+}
+
+.VPNavBar .VPNavBarTitle .title {
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.VPNavBar .VPNavBarTitle .logo {
+  width: 26px;
+  height: 26px;
+}
+
+.VPNavBar .VPNavBarMenuLink {
+  position: relative;
+  font-size: 14.5px;
+  letter-spacing: 0.05em;
+  color: var(--vp-c-text-2);
+}
+
+/* 悬停画一条细线，当前页留一根 2px 短杠 */
+.VPNavBar .VPNavBarMenuLink::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  bottom: 17px;
+  left: 12px;
+  height: 1px;
+  background-color: currentColor;
+  opacity: 0.55;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.18s var(--oz-ease);
+}
+
+.VPNavBar .VPNavBarMenuLink:hover::after,
+.VPNavBar .VPNavBarMenuLink.active::after {
+  transform: scaleX(1);
+}
+
+.VPNavBar .VPNavBarMenuLink.active {
+  color: var(--ct-green-deep);
+  font-weight: 600;
+}
+
+.VPNavBar .VPNavBarMenuLink.active::after {
+  bottom: 15px;
+  height: 2px;
+  opacity: 1;
+}
+
+@media (max-width: 639px) {
+  .VPNavBar .VPNavBarTitle .title {
+    font-size: 14px;
+  }
+
+  .VPNavBar .VPNavBarTitle .title > span {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   左栏：目录与最新稿
+   -------------------------------------------------------------------------- */
+
+.VPSidebar.VPSidebar {
+  border-right: 1px solid var(--vp-c-divider);
+  background-color: var(--ct-paper);
+}
+
+.VPSidebar .nav {
+  /* 和正文一起从上往下读 */
+  padding-top: 8px;
+}
+
+.VPSidebarItem.level-0 {
+  padding-bottom: 22px;
+}
+
+/* 组名：等宽小字 + 一枚灰绿小方印 */
+.VPSidebarItem.level-0 > .item > .text {
+  padding-bottom: 8px;
+  font-family: var(--vp-font-family-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.6;
+  letter-spacing: 0.18em;
+  color: var(--vp-c-text-3);
+  transition: color 0.18s var(--oz-ease);
+}
+
+.VPSidebarItem.level-0 > .item > .text::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 9px;
+  background-color: var(--ct-green-solid);
+  opacity: 0.55;
+  vertical-align: 1px;
+}
+
+.VPSidebar .group + .group {
+  border-top: 1px dotted var(--ct-rule);
+  padding-top: 22px;
+}
+
+/* 栏目条目：编号、标题、当前项左侧短杠 */
+.VPSidebarItem.level-1 > .item > .link {
+  min-height: 44px;
+  padding-left: 4px;
+}
+
+.VPSidebarItem.level-1 .text {
+  padding: 9px 0;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--vp-c-text-2);
+}
+
+.VPSidebarItem.level-1.is-link > .item > .link:hover .text {
+  color: var(--ct-green-deep);
+}
+
+.VPSidebarItem.level-1.is-active > .item > .link .text {
+  color: var(--ct-green-deep);
+  font-weight: 600;
+}
+
+.VPSidebarItem.level-1.is-active > .item > .indicator {
+  top: 11px;
+  bottom: 11px;
+  left: -14px;
+  width: 2px;
+  border-radius: 0;
+  background-color: var(--ct-green-solid);
+}
+
+/* --------------------------------------------------------------------------
+   右栏：本页标题大纲
+   -------------------------------------------------------------------------- */
+
+.VPDocAsideOutline {
+  padding-top: 12px;
+  border-top: 2px solid var(--ct-green-deep);
+}
+
+.VPDocAsideOutline .outline-title {
+  font-family: var(--vp-font-family-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  color: var(--ct-green);
+}
+
+.VPDocAsideOutline .outline-link {
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.VPDocAsideOutline .outline-link:hover {
+  color: var(--ct-green-deep);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.VPDocAsideOutline .outline-link.active {
+  color: var(--ct-green-deep);
+  font-weight: 600;
+}
+
+.VPDocAsideOutline .outline-marker {
+  width: 2px;
+  background-color: var(--ct-green-solid);
+}
+
+/* --------------------------------------------------------------------------
+   首页：纸面 + 半调人像
+   -------------------------------------------------------------------------- */
+
+@keyframes oz-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes oz-settle {
+  from {
+    opacity: 0;
+    transform: scale(1.02);
+  }
+  to {
+    opacity: var(--oz-portrait-opacity, 0.8);
+    transform: scale(1);
+  }
+}
+
+.VPHome .VPHero .main::before {
+  animation: oz-rise 0.6s var(--oz-ease) both;
+}
+
+.VPHome .VPHero .name {
+  animation: oz-rise 0.75s 0.05s var(--oz-ease) both;
+}
+
+.VPHome .VPHero .text {
+  animation: oz-rise 0.75s 0.12s var(--oz-ease) both;
+}
+
+.VPHome .VPHero .tagline {
+  animation: oz-rise 0.75s 0.19s var(--oz-ease) both;
+}
+
+.VPHome .VPHero {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--ct-paper);
+  background-image: radial-gradient(
+    1200px 340px at 18% 0%,
+    rgba(203, 216, 205, 0.38),
+    transparent 72%
+  );
+  background-repeat: no-repeat;
+}
+
+/* 半色调人像：浅灰绿网点，右侧淡入纸面 */
+.VPHome .VPHero::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: -8%;
+  right: -1%;
+  width: min(56%, 760px);
+  height: 116%;
+  background: url('/images/halftone-portrait.webp') right 20% / cover no-repeat;
+  --oz-portrait-opacity: 0.8;
+  opacity: var(--oz-portrait-opacity);
+  animation: oz-settle 1.1s 0.05s var(--oz-ease) both;
+  pointer-events: none;
+}
+
+@media (max-width: 959px) {
+  .VPHome .VPHero::before {
+    top: -10%;
+    right: -24%;
+    width: 100%;
+    height: 120%;
+    --oz-portrait-opacity: 0.45;
+    background-position: right 30%;
+  }
+}
+
+/* 一枚纯灰绿方块标记 */
+.VPHome .VPHero .main::before {
+  content: "";
+  display: block;
+  width: 50px;
+  height: 50px;
+  margin-bottom: 24px;
+  background: url('/logo.svg') center / contain no-repeat;
+}
+
+/* 报头：Chomsky 只排拉丁，中文自然落到 Noto Serif SC */
+.VPHome .VPHero .name {
+  font-family: var(--ct-masthead);
+  font-size: clamp(52px, 5.4vw, 74px);
+  font-weight: 400;
+  line-height: 1.08;
+  letter-spacing: 0;
+  color: var(--ct-green-deep);
+  -webkit-text-fill-color: var(--ct-green-deep);
+}
+
+.VPHome .VPHero .text {
+  font-family: var(--ct-serif);
+  font-size: clamp(23px, 2.6vw, 34px);
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.045em;
+  color: var(--ct-ink);
+  -webkit-text-fill-color: var(--ct-ink);
+}
+
+.VPHome .VPHero .tagline {
+  max-width: 36em;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--vp-c-text-2);
+}
+
+.VPHome > .vp-doc.container {
+  max-width: 1152px;
+  margin-top: 64px;
+  padding-inline: 24px;
+}
+
+@media (max-width: 639px) {
+  .VPHome > .vp-doc.container {
+    margin-top: 48px;
+    padding-inline: 24px;
+  }
+}
+
+/* 两块小方框：角上一片网点，标题压在左下 */
+.oz-links {
+  display: grid;
+  grid-template-columns: repeat(2, 172px);
+  gap: 18px;
+  margin: 4px 0 0;
+}
+
+@media (max-width: 639px) {
+  .oz-links {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .vp-doc .oz-link {
+    width: auto;
+    height: 150px;
+  }
+
+  .oz-link-title {
+    white-space: normal;
+    font-size: 15.5px;
+    line-height: 1.45;
+  }
+}
+
+.vp-doc .oz-link {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 172px;
+  height: 172px;
+  border: 1px solid var(--ct-tile-edge);
+  padding: 13px 14px 15px;
+  color: var(--ct-ink);
+  text-decoration: none;
+  transition:
+    transform 0.18s var(--oz-ease),
+    border-color 0.18s var(--oz-ease),
+    background-color 0.18s var(--oz-ease);
+}
+
+.vp-doc .oz-link::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--ct-halftone-soft);
+  background-size: 7px 7px;
+  -webkit-mask-image: radial-gradient(
+    circle at 74% 26%,
+    #000 0%,
+    rgba(0, 0, 0, 0.45) 46%,
+    transparent 74%
+  );
+  mask-image: radial-gradient(
+    circle at 74% 26%,
+    #000 0%,
+    rgba(0, 0, 0, 0.45) 46%,
+    transparent 74%
+  );
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.vp-doc .oz-link:hover {
+  border-color: var(--ct-green);
+  background-color: rgba(238, 242, 235, 0.7);
+  color: var(--ct-ink);
+  text-decoration: none;
+  transform: translateY(-2px);
+}
+
+.vp-doc .oz-link:hover::before {
+  opacity: 0.6;
+}
+
+.oz-link-no {
+  position: relative;
+  font-family: var(--vp-font-family-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--ct-green);
+}
+
+.oz-link-title {
+  position: relative;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+/* 首页：一行手搓说明 */
+.oz-features {
+  margin-top: 64px;
+  border-top: 2px solid var(--ct-green-deep);
+  border-bottom: 1px solid var(--ct-rule);
+}
+
+.oz-feature {
+  padding: 20px 0 24px;
+}
+
+.vp-doc .oz-feature h2 {
+  margin: 0 0 6px;
+  padding: 0;
+  border: 0;
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--ct-ink);
+}
+
+.vp-doc .oz-feature p:last-child {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--vp-c-text-2);
+}
+
+@media (max-width: 767px) {
+  .oz-features {
+    margin-top: 48px;
+  }
+
+  .oz-feature {
+    padding: 18px 0;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   正文：Typora 手感
+   -------------------------------------------------------------------------- */
+
+.vp-doc {
+  font-family: var(--ct-serif);
+}
+
+/* 栏目页的眉题与导语 */
+.vp-doc .oz-kicker {
+  margin: 0 0 12px;
+  font-family: var(--vp-font-family-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--ct-green);
+}
+
+.vp-doc .oz-lead {
+  max-width: 34em;
+  margin: 0 0 8px;
+  font-size: 17.5px;
+  line-height: 1.85;
+  color: var(--vp-c-text-2);
+}
+
+/* 正文离顶栏再松一点，三栏一起读 */
+@media (min-width: 960px) {
+  .VPDoc.VPDoc {
+    padding-top: 60px;
+  }
+}
+
+/* 段落距 1.5 倍；行高沿用 VitePress 默认 */
+.vp-doc p {
+  margin: 1.5em 0;
+}
+
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3,
+.vp-doc h4 {
+  color: var(--ct-ink);
+  letter-spacing: 0.02em;
+}
+
+.vp-doc h1 {
+  margin: 0 0 0.5em;
+  font-size: clamp(30px, 3.4vw, 40px);
+  font-weight: 600;
+  line-height: 1.32;
+  letter-spacing: 0.01em;
+}
+
+.vp-doc h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2.5em 0 1em;
+  border-top: 0;
+  border-bottom: 0;
+  padding: 0;
+  font-weight: 600;
+}
+
+/* 每条二级标题前点一枚灰绿小方印，标题后拖一段渐隐网点 */
+.vp-doc h2::before {
+  content: "";
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  background-color: var(--ct-green-solid);
+  opacity: 0.72;
+  transform: rotate(-4deg);
+}
+
+.vp-doc h2::after {
+  content: "";
+  flex: 1 1 48px;
+  height: 8px;
+  background-image: var(--ct-halftone-soft);
+  background-size: 6px 6px;
+  background-position: 0 50%;
+  background-repeat: repeat-x;
+  opacity: 0.85;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    #000 0%,
+    rgba(0, 0, 0, 0.55) 46%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    #000 0%,
+    rgba(0, 0, 0, 0.55) 46%,
+    transparent 100%
+  );
+}
+
+.vp-doc h3 {
+  margin-top: 2em;
+  font-weight: 600;
+}
+
+/* 列表前缀改为灰绿小方块，代替圆点 */
+.vp-doc ul > li {
+  list-style: none;
+  position: relative;
+}
+
+.vp-doc ul > li::before {
+  content: "";
+  position: absolute;
+  top: 0.78em;
+  left: -1.15em;
+  width: 5px;
+  height: 5px;
+  background-color: var(--ct-tile-edge);
+}
+
+.vp-doc a {
+  color: var(--vp-c-brand-1);
+  text-decoration-color: rgba(79, 110, 91, 0.4);
+  text-underline-offset: 3px;
+}
+
+.vp-doc a:hover {
+  color: var(--vp-c-brand-2);
+  text-decoration-color: currentColor;
+}
+
+.vp-doc blockquote {
+  position: relative;
+  overflow: hidden;
+  margin: 1.75em 0;
+  border-left: 0;
+  border-radius: 0 4px 4px 0;
+  padding: 0.9em 1.2em 0.9em 1.5em;
+  background-color: rgba(238, 242, 235, 0.75);
+  color: var(--vp-c-text-2);
+}
+
+/* 引言左边不再是实线，是一列从上往下淡掉的网点 */
+.vp-doc blockquote::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 7px;
+  background-image: var(--ct-halftone);
+  background-size: 5px 5px;
+  opacity: 0.9;
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    #000 0%,
+    rgba(0, 0, 0, 0.5) 62%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    #000 0%,
+    rgba(0, 0, 0, 0.5) 62%,
+    transparent 100%
+  );
+}
+
+.vp-doc blockquote > p {
+  color: inherit;
+}
+
+.vp-doc table {
+  margin: 1.75em 0;
+}
+
+.vp-doc tr {
+  background-color: transparent;
+}
+
+.vp-doc tr:nth-child(2n) {
+  background-color: rgba(238, 242, 235, 0.6);
+}
+
+.vp-doc th {
+  background-color: var(--ct-paper-deep);
+  color: var(--ct-green-deep);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.vp-doc th,
+.vp-doc td {
+  border-color: var(--vp-c-divider);
+  padding: 9px 14px;
+  font-size: 14.5px;
+}
+
+/* 分隔线换成三枚墨色不匀的灰绿小方印 */
+.vp-doc hr {
+  width: 100%;
+  height: 6px;
+  margin: 3em auto;
+  border: 0;
+  background-color: transparent;
+  background-image:
+    linear-gradient(rgba(88, 119, 99, 0.7), rgba(88, 119, 99, 0.7)),
+    linear-gradient(rgba(88, 119, 99, 0.34), rgba(88, 119, 99, 0.34)),
+    linear-gradient(rgba(88, 119, 99, 0.52), rgba(88, 119, 99, 0.52));
+  background-repeat: no-repeat;
+  background-size: 6px 6px;
+  background-position:
+    calc(50% - 15px) calc(50% - 1px),
+    center calc(50% + 1px),
+    calc(50% + 15px) center;
+}
+
+.vp-doc :not(pre) > code {
+  border: 1px solid #dde5dc;
+  border-radius: 3px;
+  background-color: #e9eee8;
+  padding: 1px 5px;
+  color: var(--ct-green-deep);
+  font-size: 0.88em;
+}
+
+.vp-doc div[class*='language-'] {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 6px;
+}
+
+.vp-doc .custom-block {
+  position: relative;
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+/* 提示框右上一小片网点，和报头呼应 */
+.vp-doc .custom-block::after {
+  content: "";
+  position: absolute;
+  top: -18px;
+  right: -18px;
+  width: 108px;
+  height: 108px;
+  background-image: var(--ct-halftone-soft);
+  background-size: 7px 7px;
+  opacity: 0.6;
+  -webkit-mask-image: radial-gradient(
+    circle at 100% 0,
+    #000 0%,
+    rgba(0, 0, 0, 0.5) 42%,
+    transparent 70%
+  );
+  mask-image: radial-gradient(
+    circle at 100% 0,
+    #000 0%,
+    rgba(0, 0, 0, 0.5) 42%,
+    transparent 70%
+  );
+  pointer-events: none;
+}
+
+.vp-doc .custom-block > * {
+  position: relative;
+  z-index: 1;
+}
+
+.vp-doc .custom-block p {
+  margin: 0.6em 0;
+}
+
+.vp-doc .custom-block.tip,
+.vp-doc .custom-block.note {
+  border-color: var(--ct-tile-edge);
+  background-color: rgba(203, 216, 205, 0.26);
+}
+
+.vp-doc .custom-block.tip .custom-block-title,
+.vp-doc .custom-block.note .custom-block-title {
+  color: var(--ct-green-deep);
+}
+
+/* VitePress 自带的上一章 / 下一章：去掉圆角卡片，改成一栏线 */
+.VPDocFooter .prev-next.prev-next {
+  grid-column-gap: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--ct-rule);
+}
+
+.VPDocFooter .pager-link.pager-link {
+  padding: 10px 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  transition: none;
+}
+
+.VPDocFooter .pager-link.pager-link:hover {
+  border-color: transparent;
+}
+
+.VPDocFooter .pager-link .desc {
+  font-family: var(--vp-font-family-mono);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  color: var(--ct-green);
+}
+
+.VPDocFooter .pager-link .title {
+  margin-top: 2px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ct-ink);
+}
+
+.VPDocFooter .pager-link:hover .title {
+  color: var(--ct-green-deep);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* --------------------------------------------------------------------------
+   动效收敛
+   -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .vp-doc .oz-link:hover {
+    transform: none;
+  }
+}

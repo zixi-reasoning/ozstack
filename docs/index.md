@@ -2,7 +2,8 @@
 layout: home
 
 hero:
-  name: 兔狲大力玩
+  name: TUSUN
+  text: 兔狲大力玩
   tagline: AI 时代的编程大力玩
 ---
 

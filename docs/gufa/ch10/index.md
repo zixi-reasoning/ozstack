@@ -8,13 +8,13 @@
 
 九个零件，九种看法，看的却是同一块内存。第一章看一个字节，第二章看一段区间，第三章看一个负数，第四章看一个指针，第五章看一排元素，第六章看一个记录，第七章看一句话，第八章看一个整数，第九章看一整片。每一种看法都建立在前一种之上，每一种看法都有自己的检查函数。问题是，前九章的检查各自为政：字节层检查地址，存储层检查区间，纸带层检查标注，谁也没有对整台机器负责。
 
-这一章不造新零件。这一章把九个零件装进一个程序，让它们共用一块 256 KiB 的静态数组、一套地址、一条访问路径。装完以后，读者拿到的是一个可以检查的内存描述符 `AletheiaMem`，以及四个入口：读字节、写字节、读 32 位、写 32 位，外加一个地址算术函数 `aletheia_addr_of`。第二卷会在这个描述符上盖分配器，第三卷会在分配器上盖机器，第四卷会在机器上跑算法。地基就在这一章打完。
+这一章不造新零件。这一章把九个零件装进一个程序，让它们共用一块 256 KiB 的静态数组、一套地址、一条访问路径。装完以后，读者拿到的是一个可以检查的内存描述符 `AletheiaMem`，以及由它派生的七种视图：`AletheiaSpan`、`AletheiaPtr`、`AletheiaArr`、`AletheiaStruct`、`AletheiaStr`、`AletheiaStore`、`AletheiaTape`。每种视图的第一个参数都是 `const struct AletheiaMem *m`，所有字节访问最终落到 `aletheia_peek_u8` 和 `aletheia_poke_u8`。第二卷会在这个描述符上盖分配器，第三卷会在分配器上盖机器，第四卷会在机器上跑算法。地基就在这一章打完。
 
 ## 二、开场实验：九个零件，一块数组
 
 先做一次思想实验。假设前九章的程序各带一块 256 KiB 数组。第一章的 `aletheia_mem` 在文件 A，第八章的 `aletheia_mem` 在文件 B，第九章的纸带又指向文件 C 的一块区域。三个数组内容不同，地址相同。读者从文件 A 里拿到地址 0x00800，把它交给文件 B 的读函数，读出来的是文件 B 的 0x00800，不是文件 A 的。地址没有变，内存变了。这不是指针错误，是机器错误：一台机器只能有一块内存，不能有九块。
 
-总装的第一步是删掉多余的数组，只留一块。所有章节的零件改成接收同一个描述符，描述符指向同一块数组。地址不再属于某个文件的局部数组，地址属于整台机器。第二步是删掉多余的边界检查，只留一层。字节层不再自己判断地址是否合法，它把判断交给 `AletheiaMem`；存储层不再自己判断区间，它也交给 `AletheiaMem`；纸带层只判断标注是否落在机器内。第三步是把检查函数串起来，让一个程序从头到尾跑一遍，最后打印一个总结果。
+总装的第一步是删掉多余的数组，只留一块。所有章节的零件改成接收同一个描述符，描述符指向同一块数组。地址不再属于某个文件的局部数组，地址属于整台机器。第二步是删掉多余的边界检查，只留一层。字节层不再自己判断地址是否合法，它把判断交给 `AletheiaMem`；存储层不再自己判断区间，它也交给 `AletheiaMem`；纸带层把标注放进一个 `AletheiaStore`，再由存储层交给机器。第三步是把九种看法串起来，让一个程序从头到尾跑一遍，最后打印一个总结果。
 
 装完后的机器有这样一张启动图：
 
@@ -28,11 +28,11 @@ FREE  : 0x3f200..0x3ffff
 
 启动区放签名，代码区留 512 字节，数据区放演示值，栈区在机器高处，空闲区接在栈区后面。区域之间有大段空隙，那些空隙没有标注，也没有内容。启动图不是整块内存的转储，是整块内存的目录。目录告诉读者每一段从哪里开始、到哪里结束、有多大；转储告诉读者每一段里到底有哪些字节。两个合起来，才是一台机器的完整画像。
 
-这一章的程序会打印这些内容：启动图、标注表、地址查找、纸带表、指针算术表、结构体布局表、记录字段、字符串、栈顶、十六进制转储、覆盖统计、失败检查和汇总。每一段都来自同一块数组，每一次读写都经过 `AletheiaMem`。程序最后打印 `ALETHEIA MEM OK`，表示九种看法在同一块内存上达成一致。
+这一章的程序会打印这些内容：启动图、标注表、地址查找、纸带表、指针算术表、数组表、结构体布局表、记录字段、字符串、启动签名、栈顶、区间表、十六进制转储、覆盖统计、失败检查和汇总。每一段都来自同一块数组，每一次读写都经过 `AletheiaMem`。程序最后打印 `ALETHEIA MEM OK`，表示九种看法在同一块内存上达成一致。
 
-看一次写入的完整路径。调用者想把值 7 写到记录的第一个字段，地址 0x01020，宽度 4。它调用 `aletheia_write_u32`，传入描述符、地址、值。包装函数调用 `write_le`，宽度 4。`write_le` 调用 `mem_has`，检查描述符、宽度、下界、上界。`mem_has` 返回真，`write_le` 进入循环，取出最低字节 0x07，调用 `poke` 写到 0x01020；再取下一个字节 0x00，写到 0x01021；再取两个 0x00，写到 0x01022 和 0x01023。四次 `poke`，每次都要再查一次 `mem_has`。最后 `write_le` 返回真，包装函数返回真，调用者看到成功。整条路径上，数组只被 `poke` 碰了四次，边界只被 `mem_has` 检查了多次，没有任何一层跳过检查。
+看一次写入的完整路径。调用者想把值 7 写到记录的第一个字段，地址 0x01020，宽度 4。它先通过 `aletheia_field_ptr` 拿到字段指针，再调用 `aletheia_store_write_u32`，传入机器描述符、存储窗口、地址、值。存储层调用 `aletheia_store_write_le`，宽度 4。`store_write_le` 调用 `store_has`，检查地址落在记录的存储窗口内；通过后调用 `aletheia_mem_write_le`。机器层调用 `mem_has`，再检查地址落在整台机器内；通过后 `mem_write_le` 进入循环，取出最低字节 0x07，调用 `poke_u8` 写到 0x01020；再取下一个字节 0x00，写到 0x01021；再取两个 0x00，写到 0x01022 和 0x01023。四次 `poke_u8`，每次都要再查一次 `mem_has`。最后 `mem_write_le` 返回真，存储层返回真，调用者看到成功。整条路径上，数组只被 `poke_u8` 碰了四次，边界被存储层和机器层各查了一遍，没有任何一层跳过检查。
 
-这条路径看起来重复：外层已经检查过区间，内层每次 `poke` 又检查一遍。重复是有意的。外层检查保证整个 4 字节区间合法，内层检查保证每个单字节访问也合法；两层都通过，才能排除“外层算错但内层碰巧挡住”和“内层放宽但外层没发现”的情况。教学代码宁可多查几次，也不把正确性寄托在“调用者已经检查过”的口头约定上。真要优化，可以把内层检查合并成一次区间检查加四次无检查写入，但那要引入一个新的内部入口；这一章不引入，保持只有 `peek` 和 `poke` 两个入口。
+这条路径看起来重复：外层已经检查过区间，内层每次 `poke_u8` 又检查一遍。重复是有意的。存储层检查保证整个记录窗口合法，机器层检查保证整台机器合法，内层检查保证每个单字节访问也合法；三层都通过，才能排除“外层算错但内层碰巧挡住”和“内层放宽但外层没发现”的情况。教学代码宁可多查几次，也不把正确性寄托在“调用者已经检查过”的口头约定上。真要优化，可以把内层检查合并成一次区间检查加四次无检查写入，但那要引入一个新的内部入口；这一章不引入，保持只有 `peek_u8` 和 `poke_u8` 两个入口。
 
 ## 三、一台机器的地址空间
 
@@ -41,7 +41,7 @@ FREE  : 0x3f200..0x3ffff
 Aletheia 的全部内存是一个静态数组：
 
 ```c
-static AletheiaByte aletheia_rom[ALETHEIA_SIZE];
+static AletheiaByte aletheia_mem[ALETHEIA_SIZE];
 ```
 
 `ALETHEIA_SIZE` 是 $256\cdot1024=262144$。数组下标从 0 到 262143，地址也用同一套编号。地址空间可以写成：
@@ -58,7 +58,7 @@ $2^{18}=262144$，所以最大地址是 $2^{18}-1=262143$，十六进制写作 `
 
 地址用 `uint32_t` 存储，虽然 18 位就够。为什么不用 18 位或 24 位？因为 32 位是宿主能直接提供的精确无符号整数类型，运算不会溢出到宿主字长之外，打印也方便。18 位节省不了多少，反而在每次加减时都要手动掩码，增加出错机会。32 位地址的上限是 4294967295，机器大小是 262144，地址检查保证任何合法地址都远小于上限。多出来的位数不浪费内存，`AletheiaAddr` 只是寄存器里的一个值，不是数组里的一格。
 
-地址空间和数组是两层。数组是具体的存储，地址空间是抽象的编号。`aletheia_rom[a]` 是具体访问，`a` 是抽象地址。总装把两层对齐：数组下标就是地址，地址就是下标，中间没有偏移。如果描述符的 `base` 不是 0，数组下标仍然是地址，因为整个数组从 0 开始编号，窗口只是限制可见范围。这个对齐是这台机器的简化，也是它容易检查的原因：读者看到 `0x01000`，既知道它是地址，也知道它对应数组的第 4096 个字节。
+地址空间和数组是两层。数组是具体的存储，地址空间是抽象的编号。`aletheia_mem[a]` 是具体访问，`a` 是抽象地址。总装把两层对齐：数组下标就是地址，地址就是下标，中间没有偏移。如果描述符的 `base` 不是 0，数组下标仍然是地址，因为整个数组从 0 开始编号，窗口只是限制可见范围。这个对齐是这台机器的简化，也是它容易检查的原因：读者看到 `0x01000`，既知道它是地址，也知道它对应数组的第 4096 个字节。
 
 ### 3.2 描述符
 
@@ -87,7 +87,7 @@ $$
 
 有人会问：既然只有一块数组，为什么不让所有函数直接用全局数组和全局常量，省掉描述符？答案是，全局数组能表达“内存在哪里”，不能表达“这一次操作允许看多大”。一个函数拿到全局数组，可以读写 0 到 262143 的任何字节；它没有义务只碰自己那一段。描述符把“允许看多大”变成参数，调用者传进来，函数就必须遵守。传一个 256 字节的窗口，函数就只能在这 256 字节里工作；传整台机器，函数才能在整台机器里工作。
 
-描述符还让同一份代码可以服务不同的区域。第九章的 `aletheia_hexdump` 接收一个存储描述符，可以转储数据区，也可以转储栈区，还可以转储第二卷的某一块。函数不关心区域里装的是什么，只关心区域从哪里开始、有多大。总装把这种“区域无关”的思路推到整台机器：`AletheiaMem` 是最大的窗口，也是所有窗口的模板。
+描述符还让同一份代码可以服务不同的区域。第九章的 `aletheia_hexdump` 接收一个存储描述符，总装给它再加一个机器描述符：存储窗口负责“这一段”，机器描述符负责“这台机器”。同一份转储代码可以转储数据区，也可以转储栈区，还可以转储第二卷的某一块。函数不关心区域里装的是什么，只关心区域从哪里开始、有多大。总装把这种“区域无关”的思路推到整台机器：`AletheiaMem` 是最大的窗口，也是所有窗口的模板。
 
 描述符是契约，不是装饰。契约写在函数签名里：`const struct AletheiaMem *m`。`const` 表示函数不修改描述符，只读它的边界。调用者可以放心把同一个描述符传给多个检查函数，不必担心其中一个把 `base` 或 `size` 改掉。描述符按值传递也可以，但传指针更省，也更清楚：所有函数看的是同一份边界，不是各自的副本。
 
@@ -101,7 +101,7 @@ $$
 
 第一个条件挡住地址落在区间左边。第二个条件用减法避免加法溢出：$a+w\le b+s$ 等价于 $a-b\le s-w$，但右边只做一次减法，左边要做一次加法，加法可能溢出 32 位。先做减法，再比较，地址再大也不会回绕。
 
-第二个条件还要求 $w\le s$。如果宽度比整个区间还大，$s-w$ 在无符号算术里会下溢成一个巨大的数，任何地址都会被误判为合法。所以检查顺序必须是：先确认 $w>0$，再确认 $w\le s$，再确认 $a\ge b$，最后比较 $a-b$ 和 $s-w$。顺序不是风格，是正确性。第八章已经踩过一次类似的坑：宽度检查没和读写函数对齐，导致 `has` 接受 3 字节而 `read_le` 拒绝 3 字节。这一章把宽度检查收进一个函数，读写都调用它，不再各写一份。
+第二个条件还要求 $w\le s$。如果宽度比整个区间还大，$s-w$ 在无符号算术里会下溢成一个巨大的数，任何地址都会被误判为合法。所以检查顺序必须是：先确认 $w>0$，再确认 $w\le s$，再确认 $a\ge b$，最后比较 $a-b$ 和 $s-w$。顺序不是风格，是正确性。第八章已经踩过一次类似的坑：宽度检查没和读写函数对齐，导致 `has` 接受 3 字节而 `read_le` 拒绝 3 字节。这一章让 `store_has` 和 `mem_has` 使用同一组宽度 1、2、4：读写先过 `store_has`，再过 `mem_has`，两层检查的是同一个宽度，不再各写一份。
 
 用一张表看边界：
 
@@ -129,7 +129,7 @@ static bool aletheia_peek_u8(const struct AletheiaMem *m, AletheiaAddr addr,
     if (out == NULL || !aletheia_mem_has(m, addr, 1u)) {
         return false;
     }
-    *out = aletheia_rom[addr];
+    *out = aletheia_mem[addr];
     return true;
 }
 ```
@@ -140,16 +140,16 @@ static bool aletheia_poke_u8(const struct AletheiaMem *m, AletheiaAddr addr,
     if (!aletheia_mem_has(m, addr, 1u)) {
         return false;
     }
-    aletheia_rom[addr] = value;
+    aletheia_mem[addr] = value;
     return true;
 }
 ```
 
-`peek` 读一个字节，`poke` 写一个字节。两个函数都先检查，再访问。数组下标只用 `addr`，因为描述符的 `base` 是 0；如果描述符是窗口，正确写法是 `aletheia_rom[m->base + (addr - m->base)]`，化简后还是 `aletheia_rom[addr]`。地址减去 `base` 再加 `base` 抵消了，但检查没有抵消：`addr` 必须落在窗口内。这一层抵消是有意的，它让窗口描述符和整机描述符共用同一套入口。
+`peek_u8` 读一个字节，`poke_u8` 写一个字节。两个函数都先检查，再访问。数组下标只用 `addr`，因为描述符的 `base` 是 0；如果描述符是窗口，地址仍然是全局地址，`peek_u8` 先确认它落在窗口内，再访问全局数组。地址减去 `base` 再加 `base` 抵消了，但检查没有抵消：`addr` 必须落在窗口内。这一层抵消是有意的，它让窗口描述符和整机描述符共用同一套入口。
 
-`out == NULL` 放在最前面。空指针不是地址错误，是调用错误；两种错误都返回假，但检查顺序不同。先查空指针，再查边界，可以避免在空指针上做任何运算。`poke` 没有输出参数，只查边界。两个函数都不打印，不记录日志，不设置全局错误码。错误通过返回值传给调用者，调用者决定是打印、重试还是终止。
+`out == NULL` 放在最前面。空指针不是地址错误，是调用错误；两种错误都返回假，但检查顺序不同。先查空指针，再查边界，可以避免在空指针上做任何运算。`poke_u8` 没有输出参数，只查边界。两个函数都不打印，不记录日志，不设置全局错误码。错误通过返回值传给调用者，调用者决定是打印、重试还是终止。
 
-为什么只有这两个函数碰数组？因为所有上层都建立在这两个函数上。整数读写循环调用 `peek` 和 `poke`，字符串扫描调用 `peek`，十六进制转储调用 `peek`，记录字段读取调用 `read_le` 或 `peek`。只要这两个函数的边界正确，上层就不需要重复检查；只要这两个函数不越界，整台机器就不会越界。这是总装的核心：把信任集中在一个地方，而不是散在九个地方。
+为什么只有这两个函数碰数组？因为所有上层都建立在这两个函数上。机器层的整数读写循环调用 `peek_u8` 和 `poke_u8`，存储层再包一层窗口检查；字符串扫描、十六进制转储、记录字段读取最终都落到这两个函数。只要这两个函数的边界正确，上层就不需要重复实现数组访问；只要这两个函数不越界，整台机器就不会越界。这是总装的核心：把信任集中在一个地方，而不是散在九个地方。
 
 ### 4.2 小端整数
 
@@ -165,9 +165,9 @@ $$
 b_i=(v\gg8i)\ \&\ 255
 $$
 
-`read_le` 先检查宽度必须是 1、2、4，再检查区间，再循环拼值。`write_le` 先检查同样的宽度，再检查区间，再循环拆字节。两个函数都只接受这三种宽度，因为机器的基本整数类型是 8 位、16 位、32 位；3 字节不是标准宽度，允许它会诱导读者写出无法对齐的结构体字段。
+`aletheia_store_read_le` 先检查存储窗口，再调用 `aletheia_mem_read_le`；后者检查宽度必须是 1、2、4，再检查区间，再循环拼值。写入走同一条路：`store_write_le` 查窗口，`mem_write_le` 查宽度和区间，再循环拆字节。两个机器层函数都只接受这三种宽度，因为机器的基本整数类型是 8 位、16 位、32 位；3 字节不是标准宽度，允许它会诱导读者写出无法对齐的结构体字段。
 
-宽度检查放在区间检查之前，理由和边界一样：宽度不合法时，`s-w` 可能下溢。先拒绝 3，再算边界，顺序固定。`read_le` 还检查 `out != NULL`，因为写输出参数之前必须确认指针有效；`write_le` 没有输出参数，不需要这一条。
+宽度检查放在区间检查之前，理由和边界一样：宽度不合法时，`s-w` 可能下溢。先拒绝 3，再算边界，顺序固定。`mem_read_le` 和 `store_read_le` 都检查 `out != NULL`，因为写输出参数之前必须确认指针有效；写入路径没有输出参数，不需要这一条。
 
 小端不是唯一的选择，大端也能定义一套完整读写。选小端是因为这台机器的地址从低到高、字节从低到高，数组下标增长的方向和数值权重增长的方向一致。读者在纸带上看到 `78 56 34 12`，从左往右读是低字节到高字节，从右往左读才是常见的十六进制写法 `0x12345678`。这个“反过来”不是错误，是小端的定义。第八章已经解释过，这一章只需要确认：总装没有换字节序，所有整数仍然走小端。
 
@@ -177,7 +177,7 @@ $$
 \operatorname{read}_{w}(\operatorname{write}_{w}(v))=v
 $$
 
-对任意 32 位 $v$ 和 $w\in\{1,2,4\}$ 成立。$w=1$ 时只保留最低 8 位，严格说往返的是 $v\bmod256$，不是任意 $v$。程序里只对 $w=4$ 验证完整往返，对 $w=1$ 和 $w=2$ 验证截断后的值。这个区别要在验收里写清楚，不能笼统说“所有宽度都往返”。
+对任意 32 位 $v$ 和 $w\in\{1,2,4\}$ 成立。$w=1$ 时只保留最低 8 位，严格说往返的是 $v\bmod256$，不是任意 $v$。程序对 $w=4$ 验证完整值，对 `flags` 的 $w=2$ 验证 3，对 `kind` 和 `tag` 的 $w=1$ 验证 1 和 2，都是截断之后仍然相等的值。这个区别要在验收里写清楚，不能笼统说“所有宽度都往返”。
 
 ### 4.3 地址算术
 
@@ -200,7 +200,7 @@ if (delta > (uint64_t)(m->size - off)) {
 
 函数允许 `base` 等于区间右端，条件是 `index=0`。这时算出的地址是“末尾之后”，可以用于构造尾指针，不能用于读写。C 的指针算术允许尾指针，不允许解引用尾指针；Aletheia 用同样的规则：地址可以算出来，读写会拒绝。`addr_of` 只负责算地址，不负责判断这个地址能不能读写；能不能读写由 `mem_has` 决定。两个函数分工明确，调用者要传对。
 
-程序用八个元素验证这条公式。数组起点 0x01000，元素大小 4，下标 0 到 7。第 $i$ 个元素的地址是 $0x01000+4i$，逐个和 `addr_of` 的结果比较，八行全部为真。这个表就是第一卷验收里的 `&arr[i] == &arr[0] + i`，只不过地址是机器地址，不是宿主指针。
+程序用两段表验证这条公式。`PTR` 段从起点 0x01000、元素大小 4 出发，用 `ptr_walk` 走 0 到 7 步，再用 `ptr_diff` 反算下标，最后和 `addr_of` 的结果三方对照，八行全部为真。`ARRAY` 段用 `arr_at` 取第 7 个元素，用 `grid_addr` 取 3 行 4 列网格的 `(1,2)`，两个地址也逐项对照。这两张表就是第一卷验收里的 `&arr[i] == &arr[0] + i`，只不过地址是机器地址，不是宿主指针。
 
 ### 4.4 结构体偏移
 
@@ -222,7 +222,7 @@ $$
 \left\lceil\frac{x}{g}\right\rceil g=\frac{x+g-1}{g}\,g
 $$
 
-这个公式只在 $g$ 是 2 的幂时好用，因为除法和乘法可以写成位运算；本章仍然用除法和乘法，先保证正确，再谈优化。`aletheia_align_ok` 要求对齐非零且是 2 的幂，`aletheia_round_up` 用 64 位中间值算向上取整，超过 32 位就拒绝。
+这个公式只在 $g$ 是 2 的幂时好用，因为除法和乘法可以写成位运算。`aletheia_align_pow2` 要求对齐非零且是 2 的幂，`aletheia_align_up` 用 64 位中间值算向上取整，超过 32 位就拒绝。`aletheia_offset_table` 逐字段调用这两个函数，把偏移写进 `AletheiaField`，最后按最大对齐补齐总大小。
 
 演示记录有五个字段：`id` 是 4 字节、对齐 4；`flags` 是 2 字节、对齐 2；`kind` 是 1 字节、对齐 1；`tag` 是 1 字节、对齐 1；`next` 是 4 字节、对齐 4。手算偏移：
 
@@ -237,13 +237,13 @@ total  12
 
 `id` 之后偏移是 4，正好是 `flags` 的对齐；`flags` 之后偏移是 6，`kind` 对齐 1，不需要补；`kind` 之后是 7，`tag` 对齐 1；`tag` 之后是 8，`next` 对齐 4，正好对齐。最后总大小是 12，12 是 4 的倍数，不需要尾部补齐。程序把这张表和手算表逐项比较，五项偏移和总大小全部相等，`LAYOUT` 段返回真。
 
-注意，这张表是 Aletheia 的布局规则，不是宿主 C 编译器的布局规则。宿主可能给 `uint32_t` 更大的对齐，也可能在结构体末尾加填充；程序不依赖宿主布局，只依赖自己的字段表和递推公式。记录的实际写入用这套偏移：`id` 在 0x01020，`flags` 在 0x01024，`kind` 在 0x01026，`tag` 在 0x01027，`next` 在 0x01028。所有写入都通过 `AletheiaMem`，读回的值和写进去的值一致。
+注意，这张表是 Aletheia 的布局规则，不是宿主 C 编译器的布局规则。宿主可能给 `uint32_t` 更大的对齐，也可能在结构体末尾加填充；程序不依赖宿主布局，只依赖自己的字段表和递推公式。记录的实际写入用这套偏移：`field_ptr` 把字段下标变成 `AletheiaPtr`，`store_write_u32` 和 `store_write_le` 通过存储窗口写入。`id` 在 0x01020，`flags` 在 0x01024，`kind` 在 0x01026，`tag` 在 0x01027，`next` 在 0x01028。所有写入都通过 `AletheiaMem`，读回的值和写进去的值一致。
 
 ### 4.5 字符串与纸带
 
-字符串仍然是一串字节加终止符。总装不新增字符串类型，只在 `AletheiaMem` 上写一个带长度上限的扫描：从起点开始读字节，遇到 0 停止，读满 32 字节也停止。上限防止没有终止符的字符串把扫描带出数据区。演示字符串是 `Aletheia`，八个字节，第九个字节是 0，扫描得到长度 8。
+字符串仍然是一串字节加终止符。总装直接复用第七章的 `AletheiaStr`，容量设成 32 字节。`str_put` 从起点写入文本，再写一个 0；`aletheia_strlen` 从起点扫描，遇到 0 停止，读满容量也停止；`str_eq_text` 把内存里的字节和字面量逐字节比较。上限防止没有终止符的字符串把扫描带出数据区。演示字符串是 `Aletheia`，八个字节，第九个字节是 0，扫描得到长度 8。
 
-纸带仍然由区域和标注组成。第九章的纸带结构可以直接复用，只需要把底层访问换成 `AletheiaMem`。标注的地址是机器地址，不是宿主地址；标注的大小是字节数，不是元素数；标注的顺序必须按地址递增。总装用五个标注描述启动图：`boot`、`code`、`data`、`stack`、`free`。五个标注覆盖 4928 字节，剩下 257216 字节是空隙。空隙不是浪费，是留给第二卷分配器、第三卷栈帧和第四卷权重的空间。
+纸带仍然由区域和标注组成。总装直接复用第九章的 `AletheiaTape`，标注从区域表生成，不再手写五个 `tape_mark` 调用。标注的地址是机器地址，不是宿主地址；标注的大小是字节数，不是元素数；标注的顺序必须按地址递增。总装用五个标注描述启动图：`boot`、`code`、`data`、`stack`、`free`。五个标注覆盖 4928 字节，剩下 257216 字节是空隙。空隙不是浪费，是留给第二卷分配器、第三卷栈帧和第四卷权重的空间。
 
 纸带层还提供按地址查找。给定一个机器地址，顺序扫描标注，找到第一个满足 $a\in[m.\text{addr},m.\text{addr}+m.\text{size})$ 的标注，返回它的下标和偏移。因为标注不重叠且按地址排序，找到的第一个就是唯一一个。找不到就是空隙。启动图、数据区和栈区的地址都能查到归属；0x00040 和 0x3E000 落在空隙里，查找返回假，程序打印 `(gap)`。
 
@@ -301,13 +301,13 @@ $$
 
 ### 5.3 检查
 
-总装程序有十二段检查：`MARKS`、`FIND`、`PAPER TAPE`、`PTR`、`LAYOUT`、`RECORD`、`STRING`、`BOOT`、`STACK`、`HEXDUMP`、`COVER`、`FAIL`。每段打印自己的数据，返回一个布尔值；`main` 收集十二个布尔值，最后打印 `SUMMARY`。
+总装程序有十四段检查：`MARKS`、`FIND`、`PAPER TAPE`、`PTR`、`ARRAY`、`LAYOUT`、`RECORD`、`STRING`、`BOOT`、`STACK`、`SPAN`、`HEXDUMP`、`COVER`、`FAIL`。每段打印自己的数据，返回一个布尔值；`main` 收集十四个布尔值，再加上描述符自身的 `mem`，最后打印 `SUMMARY`。
 
-`MARKS` 检查标注表本身：数量、顺序、大小、标签。`FIND` 检查地址查找：区内地址返回正确的标签和偏移，空隙返回假。`PAPER TAPE` 检查八个 32 位值的字节、无符号解释和有符号解释。`PTR` 检查八个元素地址是否等于起点加下标乘四。`LAYOUT` 检查五个字段偏移和总大小是否等于手算表。`RECORD` 检查写入的五个字段能否按偏移读回。`STRING` 检查字符串长度。`BOOT` 检查启动签名。`STACK` 检查栈顶两个字。`HEXDUMP` 检查五行十六进制转储。`COVER` 检查覆盖等式。`FAIL` 检查七种非法操作是否被拒绝。
+`MARKS` 检查标注表本身：数量、顺序、大小、标签。`FIND` 检查地址查找：区内地址返回正确的标签和偏移，空隙返回假。`PAPER TAPE` 检查八个 32 位值的字节、无符号解释和有符号解释。`PTR` 检查 `ptr_walk`、`ptr_diff`、`addr_of` 三方算出的八个元素地址是否一致。`ARRAY` 检查 12 字节数组的和、第 7 个元素的地址、3 行 4 列网格 `(1,2)` 的地址。`LAYOUT` 检查五个字段偏移和总大小是否等于手算表。`RECORD` 检查写入的五个字段能否按偏移读回，`struct_at` 能否算出下一个记录实例。`STRING` 检查长度、内容和逐字节比较。`BOOT` 检查启动签名。`STACK` 检查栈顶两个字。`SPAN` 检查五段区间的有效性、顺序、不重叠、包含关系和一次 8 字节复制。`HEXDUMP` 检查五行十六进制转储。`COVER` 检查覆盖等式。`FAIL` 检查十四种非法操作是否被拒绝。
 
-十二段检查不是十二个独立的程序，是同一台机器的十二个侧面。`MARKS` 和 `FIND` 看纸带，`PAPER TAPE` 和 `HEXDUMP` 看字节，`PTR` 看地址算术，`LAYOUT` 和 `RECORD` 看结构体，`STRING` 看终止符，`BOOT` 和 `STACK` 看启动图和栈，`COVER` 看总量，`FAIL` 看边界。每一段都通过 `AletheiaMem` 访问内存，没有一段绕过描述符直接碰数组。
+十四段检查不是十四个独立的程序，是同一台机器的十四个侧面。`MARKS` 和 `FIND` 看纸带，`PAPER TAPE` 和 `HEXDUMP` 看字节，`PTR` 和 `ARRAY` 看地址算术，`LAYOUT` 和 `RECORD` 看结构体，`STRING` 看终止符，`BOOT` 和 `STACK` 看启动图和栈，`SPAN` 看区间代数，`COVER` 看总量，`FAIL` 看边界。每一段都通过 `AletheiaMem` 访问内存，没有一段绕过描述符直接碰数组。
 
-汇总表打印十三个布尔值：`mem`、`marks`、`find`、`paper`、`ptr`、`layout`、`record`、`string`、`boot`、`stack`、`hexdump`、`cover`、`fail`。十三个全为真，程序打印 `ALETHEIA MEM OK` 并返回 0；任何一个为假，程序打印 `ALETHEIA MEM BROKEN` 并返回 1。返回码和最后一行一致，脚本可以直接用返回码判断，不必解析文本。
+汇总表打印十五个布尔值：`mem`、`marks`、`find`、`paper`、`ptr`、`array`、`layout`、`record`、`string`、`boot`、`stack`、`span`、`hexdump`、`cover`、`fail`。十五个全为真，程序打印 `ALETHEIA MEM OK` 并返回 0；任何一个为假，程序打印 `ALETHEIA MEM BROKEN` 并返回 1。返回码和最后一行一致，脚本可以直接用返回码判断，不必解析文本。
 
 ### 5.4 第一卷公式汇总
 
@@ -325,105 +325,155 @@ $$
 | 8 | 小端 | $v=\sum b_i2^{8i}$ |
 | 9 | 纸带 | $C+G=S$ |
 
-这张表不是装饰。每一个公式都能落到一行 C，每一行 C 都能在总装程序里找到对应的检查。字节公式落到 `peek`，区间公式落到 `mem_has`，补码公式落到 `signed32`，指针公式落到 `addr_of`，数组公式落到 `PTR` 段，结构体公式落到 `layout_offsets`，字符串公式落到 `check_string`，小端公式落到 `read_le`，纸带公式落到 `tape_cover`。公式和代码不是两套东西，是同一件事的两种写法。
+这张表不是装饰。每一个公式都能落到一行 C，每一行 C 都能在总装程序里找到对应的检查。字节公式落到 `peek_u8`，区间公式落到 `mem_has`，补码公式落到 `signed32`，指针公式落到 `ptr_walk`，数组公式落到 `arr_at`，结构体公式落到 `offset_table`，字符串公式落到 `check_string`，小端公式落到 `mem_read_le`，纸带公式落到 `tape_cover`。公式和代码不是两套东西，是同一件事的两种写法。
 
-## 六、把 AletheiaMem 写成 C
+## 六、把九个零件装成一台机器
 
-### 6.1 描述符与构造
+### 6.1 装法
 
-描述符只有两个字段。构造时先在一个临时结构体里试填，检查通过后再赋给输出参数：
+总装不是把九个程序粘在一起，是让九个类型指向同一个描述符。层次如下：
 
-```c
-static bool aletheia_mem_make(struct AletheiaMem *m, AletheiaAddr base,
-                              uint32_t size) {
-    struct AletheiaMem trial;
-    if (m == NULL) {
-        return false;
-    }
-    trial.base = base;
-    trial.size = size;
-    if (!aletheia_mem_ok(&trial)) {
-        return false;
-    }
-    *m = trial;
-    return true;
-}
+```text
+main
+  AletheiaTape     纸带：整机目录与标注
+  AletheiaStore    存储：一段有窗口的字节
+  AletheiaStruct   结构：字段偏移表
+  AletheiaStr      字符串：容量和终止符
+  AletheiaArr      数组：起点、元素大小、个数
+  AletheiaPtr      指针：起点、元素大小
+  AletheiaSpan     区间：起点、大小
+        |
+    AletheiaMem    机器：整块数组的边界
+        |
+  peek_u8 / poke_u8
+        |
+  aletheia_mem[262144]
 ```
 
-先把结果放进 `trial`，再整体赋值，失败时 `*m` 不动。这个模式在第六章和第九章都出现过：输出参数要么得到完整的新值，要么保持原值，不会停在“改了一半”的中间状态。描述符没有指针成员，没有需要释放的资源，整体赋值就是复制两个整数，代价可以忽略。
+每种视图都保留前九章的结构体定义，只把函数签名改成接收 `const struct AletheiaMem *m`。迁移表如下：
 
-`mem_ok` 检查三件事：描述符非空、大小非零、区间在机器内。区间检查先比 `base > ALETHEIA_SIZE`，再比 `size <= ALETHEIA_SIZE - base`。先比 `base` 是为减法挡住下溢：如果 `base` 大于 262144，`ALETHEIA_SIZE - base` 会回绕；先拒绝，减法才安全。这个顺序和第九章的 `tape_ok` 一样，理由也一样。
+| 章 | 类型 | 总装里的构造与检查 |
+| --- | --- | --- |
+| 2 | `AletheiaSpan` | `span_new`、`span_ok`、`span_end`、`span_contains`、`span_overlap`、`span_fill`、`span_copy` |
+| 4 | `AletheiaPtr` | `ptr_make`、`ptr_ok`、`ptr_walk`、`ptr_diff`、`ptr_read_u8`、`ptr_write_u8` |
+| 5 | `AletheiaArr` | `arr_ok`、`arr_make`、`arr_at`、`arr_addr`、`arr_sum`、`grid_index`、`grid_addr` |
+| 6 | `AletheiaFieldSpec`、`AletheiaField`、`AletheiaStruct` | `align_pow2`、`align_up`、`offset_table`、`struct_ok`、`field_ptr`、`struct_at` |
+| 7 | `AletheiaStr` | `str_ok`、`str_make`、`str_byte`、`str_poke`、`aletheia_strlen`、`str_put`、`str_eq_text`、`str_print` |
+| 8 | `AletheiaStore` | `store_ok`、`store_make`、`store_has`、`store_span`、`store_read_le`、`store_write_le`、`store_read_u32`、`store_write_u32` |
+| 9 | `AletheiaMark`、`AletheiaTape` | `label_ok`、`label_copy`、`tape_ok`、`tape_make`、`tape_mark`、`tape_find`、`tape_cover`、`tape_store` |
 
-### 6.2 边界检查
+迁移有三条硬规矩。
+
+第一条，所有视图函数的第一个参数是机器描述符，视图自己不保存第二块数组。`AletheiaSpan`、`AletheiaPtr`、`AletheiaArr`、`AletheiaStruct`、`AletheiaStr`、`AletheiaStore`、`AletheiaTape` 都只保存地址、大小、个数、偏移这类整数，不保存宿主指针，也不保存数组的拷贝。视图是看内存的眼镜，不是内存本身。
+
+第二条，同名类型只保留一个定义。第六章的 `AletheiaField` 是 `{offset, size, align}`，总装原样使用；字段名 `id`、`flags`、`kind`、`tag`、`next` 不放进类型，而是放在 `check_layout` 里的 `names` 表。这样同一个 `AletheiaStruct` 可以描述任意记录，名字只在打印时出现。上一版总装把 `AletheiaField` 写成 `{name, size, align}`，和第六章同名不同义，读者把两章的代码接起来就会撞类型；这一版删掉了那个定义。
+
+第三条，同名函数加前缀分层。机器层叫 `mem_read_le`、`mem_write_le`，存储层叫 `store_read_le`、`store_write_le`。两层都叫 `read_le` 会让读者分不清手里的是哪一层；加了前缀，调用处一眼就能看出检查了几次窗口。
+
+### 6.2 一张表管五个区域
+
+总装只有一张区域表：
 
 ```c
-static bool aletheia_mem_has(const struct AletheiaMem *m, AletheiaAddr addr,
-                             uint32_t width) {
-    uint32_t off;
-    if (!aletheia_mem_ok(m) || width == 0u || width > m->size) {
-        return false;
-    }
-    if (addr < m->base) {
-        return false;
-    }
-    off = addr - m->base;
-    return off <= m->size - width;
-}
+static const struct AletheiaRegion aletheia_regions[REGION_COUNT] = {
+    { "boot",  { 0x00000u, 0x0040u } },
+    { "code",  { 0x00100u, 0x0200u } },
+    { "data",  { 0x01000u, 0x0100u } },
+    { "stack", { 0x3f000u, 0x0200u } },
+    { "free",  { 0x3f200u, 0x0e00u } }
+};
 ```
 
-`mem_has` 是所有访问的唯一入口。它先检查描述符，再检查宽度，再检查地址下界，最后检查上界。四个检查的顺序固定：描述符不合法，后面的字段都不可信；宽度为零或大于区间，减法会下溢；地址小于起点，`addr - base` 会下溢；只有前三个都通过，最后的减法才是安全的。
+头部的启动图、纸带的五个标注、`SPAN` 段的五段区间、启动区清零、数据区清零、栈区清零、栈顶字的地址，全部从这张表取值。改一个区域的起点或大小，只需要改这一行，不会出现“头部写 0x3F000、栈检查写 0x3EFF8”这类漂移。前九章各写各的常量，总装把常量收成一张表，这是“状态管理变成一块铁板”的具体做法。
 
-`off <= m->size - width` 允许 `off` 正好等于 `size-width`，这时访问的最后一个字节正好落在区间右端之前。`off = size-width+1` 会越界一个字节，拒绝。这个等号是合法的，不能写成 `<`；写成 `<` 会把最后一次合法访问挡掉，程序会在正确地址上报错。第八章的 `store_has` 也用了这个等号，总装保持一致。
+区域表是 `static const`，编译后就固定，运行时不修改。`REGION_BOOT` 到 `REGION_FREE` 是下标，不是地址；代码里需要启动区时写 `aletheia_regions[REGION_BOOT].span.addr`，不写 `0x00000u`。唯一的例外是 `check_find` 和 `check_fail` 里的探测地址，那些地址是用来测试查找和越界的输入，不是区域定义本身。
 
-### 6.3 字节读写
+### 6.3 唯一访问路径
 
-`mem_peek` 和 `mem_poke` 已经在 4.1 出现过。这里补两个细节。第一，`peek` 先检查 `out` 再检查地址；如果 `out` 是空指针，函数返回假，不写任何东西。第二，`poke` 只检查地址，不检查值；值是一个字节，任何 0 到 255 都合法，不需要额外检查。两个函数都返回布尔值，调用者必须检查返回值；不检查也能编译，但会在越界时静默失败。
+整个程序只有 `aletheia_peek_u8` 和 `aletheia_poke_u8` 两处下标 `aletheia_mem`。其余函数都通过描述符调用这两个入口。完整路径是：
 
-整个程序只有这两处出现 `aletheia_rom[...]`。读者可以用文本搜索验证：除了 `peek` 和 `poke`，没有第三个函数直接下标数组。这个约束不是靠注释维持的，是靠代码结构维持的：上层函数拿不到数组名，只拿到描述符和 `peek`、`poke`。第二卷做分配器时，也会遵守同样的约束：分配器只通过 `AletheiaMem` 读写，不直接碰数组。
+```text
+tape_mark / tape_find / tape_cover
+  -> tape_ok
+    -> store_make
+      -> mem_has
+store_read_u32
+  -> store_has
+    -> mem_has
+  -> mem_read_le
+    -> peek_u8
+      -> mem_has
+        -> aletheia_mem[addr]
+```
 
-### 6.4 整数读写
+路径有三层边界检查：存储层检查窗口，机器层检查整台机器，字节层检查单个地址。三层检查的不是同一件事：存储层回答“这个地址属于这段记录吗”，机器层回答“这个地址属于这台机器吗”，字节层回答“这个字节的地址合法吗”。三个问题都回答是，访问才发生。
 
-`read_le` 和 `write_le` 都用循环处理宽度 1、2、4。循环里的移位量是 `8u * i`，最大 24，不会超过 31 位，也不会触发未定义行为。`write_le` 先用 `(value >> (8u * i)) & 0xffu` 取出一个字节，再转成 `AletheiaByte`；`0xffu` 的后缀 `u` 让掩码保持无符号，避免有符号右移的实现定义行为。
+这条路径也解释了为什么 `AletheiaStore` 不是多余的。纸带覆盖整台机器，它的存储窗口就是 `[0, 262144)`；记录只覆盖 12 字节，它的窗口是 `[0x01020, 0x0102C)`。同一个 `store_read_u32` 既能读纸带，也能读记录，区别只在传进去的窗口。窗口把“允许看多大”变成参数，这正是第三章描述符的想法，第八章把它做成了类型，第十章把它接到了整台机器上。
 
-读的时候先初始化 `value=0`，再逐字节或上。写的时候逐字节覆盖，不读旧值。两种操作都不依赖字节序的宿主实现，因为字节序由循环顺序决定：先处理最低地址，再处理更高地址，最低有效字节放在最低地址，这就是小端。宿主是大端还是小端，都不影响这段代码的结果，因为代码自己拼值，不用 `memcpy`，不用类型双关。
+### 6.4 七种视图
 
-`read_u32` 和 `write_u32` 只是 `read_le`、`write_le` 宽度为 4 的包装。包装函数看起来多余，实际是接口：第二卷和第三卷只关心 32 位读写，不需要知道宽度参数；以后要加 64 位读写，也在这两个包装旁边加，不用改调用者。总装把“常用宽度”和“通用宽度”分开，调用者各取所需。
+**区间。** `AletheiaSpan` 是最薄的一层，只有起点和大小。`span_ok` 调用 `mem_has(m, s.addr, s.size)`；`span_end` 在有效的前提下算起点加大小；`span_contains` 用减法判断内区间是否落在外区间里；`span_overlap` 用两个终点判断是否相交。`SPAN` 段先验证五段区域都在机器内、按地址排序、互不重叠，再把启动签名的前八个字节复制到数据区的 8 字节暂存区。复制之前先清零，复制之后逐字节读回，确认 `span_copy` 没有碰错字节。
 
-宽度的语义也要写清楚。宽度 1 的读返回 0 到 255；宽度 2 的读返回 0 到 65535；宽度 4 的读返回 0 到 4294967295。写的时候，高于宽度的位被丢弃：写 0x12345678 到宽度 2，只写低 16 位 0x5678，高 16 位不进入内存。这个截断不是错误，是宽度的定义。程序里的 `read_le` 和 `write_le` 不额外检查“值是否能装进宽度”，因为任何 32 位值都能装进 4 字节，而 1 字节和 2 字节的截断是调用者应知的行为。如果调用者希望拒绝截断，应该在调用前自己比较，或者写一个带范围的辅助函数，而不是让底层偷偷改语义。
+**指针。** `AletheiaPtr` 是起点加元素大小。`ptr_make` 要求整个元素落在机器内；`ptr_walk` 用 64 位中间值算 `addr + k * elem_size`，再检查结果加元素大小不超过机器右端；`ptr_diff` 要求两个指针元素大小相同、差值能整除元素大小、商在 `int32_t` 范围内。`PTR` 段对每个下标做三件事：`ptr_walk` 从基指针走出第 $i$ 个元素，`ptr_diff` 把第 $i$ 个元素减回基指针，`addr_of` 用下标直接算地址，三者必须相等。
 
-宽度 3 被拒绝，原因不是技术上做不到，而是语义上没有标准类型。3 字节整数在某些协议里存在，但不是这台机器的基本类型；允许宽度 3 会让 `read_le` 的返回值范围变成 0 到 16777215，和宽度 4 的接口混在一起，调用者容易把 3 字节值当 4 字节用。总装只保留 1、2、4，把“非标准宽度”挡在入口，后面所有层都不必再考虑。第八章曾经因为 `has` 接受 3 而读写拒绝 3 产生过不一致；总装把宽度检查收进 `mem_has` 和读写函数，三处一致，不再有缝。
+**数组。** `AletheiaArr` 是指针加个数。`arr_ok` 用 64 位乘法算 `elem_size * count`，先确认总大小不超过机器，再确认起点加总大小不越过机器右端。`arr_at` 先用 `ptr_make` 造基指针，再用 `ptr_walk` 走下标，所以数组的地址计算和指针的地址计算是同一条代码路径，不是两套公式。`arr_sum` 只接受元素大小为 1 的字节数组，用 `arr_at` 取每个元素，再用 `ptr_read_u8` 读值。`ARRAY` 段验证 12 个字节 1 到 12 的和是 78，第 7 个元素（下标 7，值 8）在 `0x01067`，3 行 4 列网格的 `(1,2)` 在 `0x01066`。
 
-### 6.5 地址算术
+**结构体。** 输入是 `AletheiaFieldSpec` 数组，每项只有大小和对齐；输出是 `AletheiaStruct`，里面是 `AletheiaField` 数组，每项有偏移、大小、对齐。`offset_table` 按 6.1 的递推逐字段对齐，最后按最大对齐补齐总大小，并确认整块结构落在机器内。`struct_ok` 反过来检查：首字段偏移为 0，每个偏移按自己的对齐，字段之间不重叠，总大小按最大对齐。`field_ptr` 把字段下标变成 `AletheiaPtr`，字段大小就是元素大小；`struct_at` 用 `addr + i * size` 算第 $i$ 个实例，并确认整个实例不越过机器右端。`LAYOUT` 段验证五个字段的偏移 0、4、6、7、8 和总大小 12；`RECORD` 段用 `field_ptr` 加 `store_write_*` 写入，再用同样的路径读回，最后用 `struct_at` 算出 0x01020 和 0x0102C 两个实例地址。
 
-`addr_of` 用 64 位中间值算乘积，已经在 4.3 解释过。这里补一个边界：`base` 等于区间右端、`index=0` 时，函数返回右端地址。这个地址可以参与比较，不能读写。C 的尾指针规则允许这种地址，Aletheia 的读写检查会拒绝它。如果调用者拿尾指针去读，`mem_has` 会返回假，程序不会越界。
+**字符串。** `AletheiaStr` 是起点加容量。`str_make` 要求整段容量落在机器内；`str_byte` 把第 $i$ 个字节包成元素大小为 1 的 `AletheiaPtr`，再用 `ptr_read_u8` 读；`str_poke` 走同一条路写。`aletheia_strlen` 从基指针逐字节扫描，遇到 0 返回下标，读满容量返回假；`str_put` 先量文本长度，确认小于容量，再逐字节写入，最后写 0；`str_eq_text` 先求长度，再逐字节比较文本，最后确认字面量也在同一位置结束；`str_print` 把每个字节交给 `putchar`，没有终止符时打印标记。`STRING` 段打印 `Aletheia`，长度 8，并用 `str_eq_text` 和字面量比较。
 
-`addr_of` 还检查 `base >= m->base`，但不检查 `base < end`。起点等于右端是允许的，起点大于右端会被 `off > m->size` 挡住。`off` 是 `base - m->base`，因为前面已经确认 `base >= m->base`，减法安全。`delta > m->size - off` 用 64 位比较，右边先转成 64 位，避免 `m->size - off` 在 32 位里回绕；实际上 `off <= size` 已经保证右边非负，转换只是为了比较类型一致。
+**存储。** `AletheiaStore` 是起点加窗口大小。`store_ok` 要求窗口落在机器内；`store_has` 检查宽度是 1、2、4，地址在窗口内，且宽度放得下；`store_span` 检查一段连续字节在窗口内；`store_read_le` 和 `store_write_le` 先过 `store_has`，再调用机器层的 `mem_read_le` 和 `mem_write_le`。`PAPER TAPE` 用覆盖整机的存储窗口读八个 32 位值；`RECORD` 用 12 字节的存储窗口读写字段；`STACK` 用 `tape_store` 拿到整机窗口，再从栈顶两个字读出 42 和 0x00100；`HEXDUMP` 用数据区窗口转储前 80 字节。
 
-### 6.6 布局计算
+**纸带。** `AletheiaTape` 是存储窗口加标注数组。`tape_ok` 先确认整个纸带能做成存储窗口，再逐条检查标注大小、标签、顺序和边界；`tape_mark` 是追加式，要求新标注的起点不小于上一条的终点；`tape_find` 顺序扫描，返回第一个包含目标地址的标注下标和偏移；`tape_cover` 把标注大小相加，用纸带大小减去总和得到空隙；`tape_store` 把纸带变成一个 `AletheiaStore`，交给 `hexdump`、`PAPER TAPE` 和 `STACK` 使用。`MARKS`、`FIND`、`COVER` 三段分别检查标注表、地址查找和覆盖等式。
 
-布局计算分三步：检查对齐、向上取整、累加偏移。`align_ok` 要求对齐非零且是 2 的幂，写法是 `(a & (a - 1u)) == 0u`。`round_up` 用 64 位算 `(value + align - 1) / align * align`，结果超过 32 位就拒绝。`layout_offsets` 对每个字段先按自己的对齐取整，记下偏移，再加上字段大小，最后按最大对齐取整得到总大小。
+### 6.5 构造顺序
 
-这些函数不分配内存，不修改输入，只写输出数组和总大小。字段表是 `static const`，编译时确定；偏移数组由调用者提供，长度至少等于字段数。函数不检查输出数组长度，因为 C 没有长度信息；调用者必须保证数组够大。这个约定写在函数签名旁边的注释里，读者复制代码时要一起复制约定。
+`main` 的构造顺序是固定的：
 
-布局检查的演示表用五个字段，偏移数组长度 5，总大小一个变量。程序先算，再打印，再和手算表比较。比较失败时函数返回假，但已经打印的表仍然保留，读者能看到哪一行不对。这种“先打印再判断”的顺序在检查函数里反复出现：输出是证据，返回值是结论，两者分开。
+1. `mem_make` 造整机描述符，失败就直接打印 `BROKEN` 并返回。
+2. `fill_boot` 把启动区清零，再写八个字节的签名。
+3. `fill_data` 把数据区清零，再写八个 32 位值和 12 个字节的数组。
+4. `fill_stack` 把栈区清零，再从栈区末尾倒着写两个 32 位值。
+5. `build_record` 用字段规格表算偏移，`fill_record` 用字段指针和存储窗口写五个字段。
+6. `build_string` 在数据区造一个容量 32 的字符串并写入 `Aletheia`。
+7. `build_tape` 造整机纸带，按区域表追加五个标注。
 
-### 6.7 纸带与检查
+顺序不能乱。`fill_data` 必须先把整个数据区清零，否则记录和字符串之间的填充字节可能保留上一次运行的旧值，十六进制转储就不可复现。`build_record` 必须在 `fill_record` 之前，因为写入需要字段偏移。`build_tape` 必须在区域表可用之后，因为它要读五段区域的起点和大小；它不依赖数据区的内容，放在最后只是为了让构造阶段和检查阶段分开。
 
-纸带结构从第九章原样搬来，只把底层的存储描述符换成 `AletheiaMem`。`tape_make` 先把整张表清零，再检查区域；`tape_mark` 追加标注；`tape_find` 按地址查找；`tape_cover` 统计覆盖。清零是为了让未使用的标注位置有确定值，结构体整体赋值时不会复制垃圾。这个细节不影响输出，但影响可复现性：同样的输入，每次运行的内存状态都一样。
+七步全部成功，才打印头部并开始十四段检查。任何一步失败，程序打印 `ALETHEIA MEM BROKEN` 并返回 1。构造失败和检查失败是两种失败：构造失败时连一台完整的机器都没有，后续检查没有意义；检查失败时机器还在，只是某一种看法不同意，程序会继续跑完剩下的段，让读者看到坏的范围。
 
-检查函数各自独立，不共享全局状态。`check_marks` 只读纸带，`check_paper` 只读数据区，`check_layout` 只读字段表，`check_fail` 只构造临时对象。`main` 按顺序调用，把返回值收集到局部布尔变量，最后统一汇总。任何一段失败都不会阻止后面的段运行，读者一次就能看到所有段的结果。这个设计和第九章的“一次运行给出全貌”一致。
+### 6.6 失败也是返回值
+
+`FAIL` 段在每一层都放一个非法输入：
+
+| 层 | 非法输入 | 期望 |
+| --- | --- | --- |
+| 机器 | 描述符 `[0x3F000, 0x3F000+0x2000)` 越过机器右端 | `mem_make` 拒绝 |
+| 存储 | 同样的窗口做成 `AletheiaStore` | `store_make` 拒绝 |
+| 存储 | 从 `0x3FFFF` 读 4 字节 | `store_read_u32` 拒绝 |
+| 存储 | 往 `0x3FFFF` 写 4 字节 | `store_write_u32` 拒绝 |
+| 存储 | 宽度 3 | `store_read_le` 拒绝 |
+| 机器 | 下标 `0x40000000`、元素大小 4 | `addr_of` 拒绝 |
+| 指针 | 从数据区走 `0x40000000` 步 | `ptr_walk` 拒绝 |
+| 指针 | 两个元素大小相同但对不齐的指针求差 | `ptr_diff` 拒绝 |
+| 数组 | 元素大小 4、个数 `0x40000000` | `arr_make` 拒绝 |
+| 数组 | 12 个元素的数组取下标 12 | `arr_at` 拒绝 |
+| 结构体 | 对齐 3 | `offset_table` 拒绝 |
+| 结构体 | 手工构造对齐为 3 的字段表 | `struct_ok` 拒绝 |
+| 字符串 | 起点 `0x3FFFF`、容量 4 | `str_make` 拒绝 |
+| 纸带 | 第二条标注压在第一条上 | `tape_mark` 拒绝 |
+
+十四种全部拒绝，`FAIL` 段返回真。这里没有异常、没有 `longjmp`、没有全局错误码；每一层用返回值报告失败，调用者用 `&&` 串起来。失败时不修改内存，不打印半行数据，不把坏状态留给下一层。
 
 ## 七、完整程序
 
-完整程序把字节层、存储层、纸带层、布局层和检查函数放在一个文件里。程序八百四十行，没有 `malloc`，没有 `<string.h>`，没有类型双关，没有变长数组。数组是静态的，描述符是值类型，标注表是定长的。
-
-编译命令：
+把下面的代码保存为 `aletheia_ch10.c`，用 C99 编译：
 
 ```bash
-cc -std=c99 -O2 -Wall -Wextra -pedantic -Werror aletheia_ch10.c -o aletheia_ch10
+cc -std=c99 -O2 -Wall -Wextra -pedantic aletheia_ch10.c -o aletheia_ch10
 ```
 
-程序的第一行注释写出建议文件名。读者把整段代码复制到一个空文件，保存为 `aletheia_ch10.c`，就能编译运行。程序不读取外部文件，不依赖当前目录，不打印宿主地址和时间，重复运行输出完全一致。
+程序一共 1816 行，只包含 `<stdbool.h>`、`<stddef.h>`、`<stdint.h>`、`<stdio.h>` 四个头文件。它不使用 `malloc`，不使用宿主指针算术，不依赖任何外部文件。
 
 ```c
 /* aletheia_ch10.c */
@@ -434,12 +484,52 @@ cc -std=c99 -O2 -Wall -Wextra -pedantic -Werror aletheia_ch10.c -o aletheia_ch10
 
 #define ALETHEIA_SIZE ((uint32_t)256 * 1024)
 #define ALETHEIA_MAX_MARKS 8u
+#define ALETHEIA_MAX_FIELDS 8u
 #define ALETHEIA_LABEL 12u
 
-typedef uint32_t AletheiaAddr;
 typedef uint8_t AletheiaByte;
+typedef uint32_t AletheiaAddr;
 
-struct AletheiaMem {
+struct AletheiaSpan {
+    AletheiaAddr addr;
+    uint32_t size;
+};
+
+struct AletheiaPtr {
+    AletheiaAddr addr;
+    uint32_t elem_size;
+};
+
+struct AletheiaArr {
+    AletheiaAddr addr;
+    uint32_t elem_size;
+    uint32_t count;
+};
+
+struct AletheiaFieldSpec {
+    uint32_t size;
+    uint32_t align;
+};
+
+struct AletheiaField {
+    uint32_t offset;
+    uint32_t size;
+    uint32_t align;
+};
+
+struct AletheiaStruct {
+    AletheiaAddr addr;
+    uint32_t size;
+    uint32_t field_count;
+    struct AletheiaField fields[ALETHEIA_MAX_FIELDS];
+};
+
+struct AletheiaStr {
+    AletheiaAddr addr;
+    uint32_t capacity;
+};
+
+struct AletheiaStore {
     AletheiaAddr base;
     uint32_t size;
 };
@@ -457,40 +547,34 @@ struct AletheiaTape {
     struct AletheiaMark marks[ALETHEIA_MAX_MARKS];
 };
 
-struct AletheiaField {
-    const char *name;
+struct AletheiaMem {
+    AletheiaAddr base;
     uint32_t size;
-    uint32_t align;
 };
 
-static AletheiaByte aletheia_rom[ALETHEIA_SIZE];
+struct AletheiaRegion {
+    const char *label;
+    struct AletheiaSpan span;
+};
 
-static bool aletheia_label_ok(const char *label) {
-    uint32_t i;
-    if (label == NULL || label[0] == '\0') {
-        return false;
-    }
-    for (i = 0u; i < ALETHEIA_LABEL; ++i) {
-        if (label[i] == '\0') {
-            return true;
-        }
-    }
-    return false;
-}
+enum {
+    REGION_BOOT,
+    REGION_CODE,
+    REGION_DATA,
+    REGION_STACK,
+    REGION_FREE,
+    REGION_COUNT
+};
 
-static bool aletheia_label_copy(char *dst, const char *src) {
-    uint32_t i;
-    if (dst == NULL || !aletheia_label_ok(src)) {
-        return false;
-    }
-    for (i = 0u; i < ALETHEIA_LABEL; ++i) {
-        dst[i] = src[i];
-        if (src[i] == '\0') {
-            return true;
-        }
-    }
-    return false;
-}
+static const struct AletheiaRegion aletheia_regions[REGION_COUNT] = {
+    { "boot",  { 0x00000u, 0x0040u } },
+    { "code",  { 0x00100u, 0x0200u } },
+    { "data",  { 0x01000u, 0x0100u } },
+    { "stack", { 0x3f000u, 0x0200u } },
+    { "free",  { 0x3f200u, 0x0e00u } }
+};
+
+static AletheiaByte aletheia_mem[ALETHEIA_SIZE];
 
 static bool aletheia_mem_ok(const struct AletheiaMem *m) {
     if (m == NULL || m->size == 0u) {
@@ -531,25 +615,26 @@ static bool aletheia_mem_has(const struct AletheiaMem *m, AletheiaAddr addr,
 }
 
 static bool aletheia_peek_u8(const struct AletheiaMem *m, AletheiaAddr addr,
-                            AletheiaByte *out) {
+                             AletheiaByte *out) {
     if (out == NULL || !aletheia_mem_has(m, addr, 1u)) {
         return false;
     }
-    *out = aletheia_rom[addr];
+    *out = aletheia_mem[addr];
     return true;
 }
 
 static bool aletheia_poke_u8(const struct AletheiaMem *m, AletheiaAddr addr,
-                            AletheiaByte value) {
+                             AletheiaByte value) {
     if (!aletheia_mem_has(m, addr, 1u)) {
         return false;
     }
-    aletheia_rom[addr] = value;
+    aletheia_mem[addr] = value;
     return true;
 }
 
-static bool aletheia_mem_read_le(const struct AletheiaMem *m, AletheiaAddr addr,
-                                 uint32_t width, uint32_t *out) {
+static bool aletheia_mem_read_le(const struct AletheiaMem *m,
+                                 AletheiaAddr addr, uint32_t width,
+                                 uint32_t *out) {
     uint32_t value = 0u;
     uint32_t i;
     if (out == NULL || (width != 1u && width != 2u && width != 4u)) {
@@ -569,8 +654,9 @@ static bool aletheia_mem_read_le(const struct AletheiaMem *m, AletheiaAddr addr,
     return true;
 }
 
-static bool aletheia_mem_write_le(const struct AletheiaMem *m, AletheiaAddr addr,
-                                  uint32_t width, uint32_t value) {
+static bool aletheia_mem_write_le(const struct AletheiaMem *m,
+                                  AletheiaAddr addr, uint32_t width,
+                                  uint32_t value) {
     uint32_t i;
     if (width != 1u && width != 2u && width != 4u) {
         return false;
@@ -585,11 +671,6 @@ static bool aletheia_mem_write_le(const struct AletheiaMem *m, AletheiaAddr addr
         }
     }
     return true;
-}
-
-static bool aletheia_read_u32(const struct AletheiaMem *m, AletheiaAddr addr,
-                               uint32_t *out) {
-    return aletheia_mem_read_le(m, addr, 4u, out);
 }
 
 static bool aletheia_write_u32(const struct AletheiaMem *m, AletheiaAddr addr,
@@ -620,66 +701,761 @@ static bool aletheia_addr_of(const struct AletheiaMem *m, AletheiaAddr base,
     return true;
 }
 
-static bool aletheia_tape_ok(const struct AletheiaTape *t) {
-    AletheiaAddr cursor;
+static struct AletheiaSpan aletheia_span_new(AletheiaAddr addr,
+                                             uint32_t size) {
+    struct AletheiaSpan s;
+    s.addr = addr;
+    s.size = size;
+    return s;
+}
+
+static bool aletheia_span_ok(const struct AletheiaMem *m,
+                             struct AletheiaSpan s) {
+    return s.size != 0u && aletheia_mem_has(m, s.addr, s.size);
+}
+
+static bool aletheia_span_end(const struct AletheiaMem *m,
+                              struct AletheiaSpan s, AletheiaAddr *out) {
+    if (out == NULL || !aletheia_span_ok(m, s)) {
+        return false;
+    }
+    *out = s.addr + s.size;
+    return true;
+}
+
+static bool aletheia_span_contains(const struct AletheiaMem *m,
+                                   struct AletheiaSpan outer,
+                                   struct AletheiaSpan inner) {
+    uint32_t delta;
+    if (!aletheia_span_ok(m, outer) || !aletheia_span_ok(m, inner)) {
+        return false;
+    }
+    if (inner.addr < outer.addr) {
+        return false;
+    }
+    delta = inner.addr - outer.addr;
+    if (delta > outer.size) {
+        return false;
+    }
+    return inner.size <= outer.size - delta;
+}
+
+static bool aletheia_span_overlap(const struct AletheiaMem *m,
+                                  struct AletheiaSpan a,
+                                  struct AletheiaSpan b) {
+    AletheiaAddr a_end = 0u;
+    AletheiaAddr b_end = 0u;
+    if (!aletheia_span_end(m, a, &a_end) ||
+        !aletheia_span_end(m, b, &b_end)) {
+        return false;
+    }
+    return a.addr < b_end && b.addr < a_end;
+}
+
+static bool aletheia_span_fill(const struct AletheiaMem *m,
+                               struct AletheiaSpan s, AletheiaByte value) {
     uint32_t i;
-    if (t == NULL || t->base > ALETHEIA_SIZE || t->size == 0u ||
-        t->mark_count > ALETHEIA_MAX_MARKS) {
+    if (!aletheia_span_ok(m, s)) {
         return false;
     }
-    if (t->size > ALETHEIA_SIZE - t->base) {
-        return false;
-    }
-    cursor = t->base;
-    for (i = 0u; i < t->mark_count; ++i) {
-        const struct AletheiaMark *m = &t->marks[i];
-        uint32_t off;
-        if (m->size == 0u || m->size > t->size ||
-            !aletheia_label_ok(m->label)) {
+    for (i = 0u; i < s.size; ++i) {
+        if (!aletheia_poke_u8(m, s.addr + i, value)) {
             return false;
         }
-        if (m->addr < cursor) {
-            return false;
-        }
-        off = m->addr - t->base;
-        if (off > t->size - m->size) {
-            return false;
-        }
-        cursor = m->addr + m->size;
     }
     return true;
 }
 
-static bool aletheia_tape_make(struct AletheiaTape *t, AletheiaAddr base,
-                               uint32_t size) {
+static bool aletheia_span_copy(const struct AletheiaMem *m,
+                               struct AletheiaSpan dst,
+                               struct AletheiaSpan src) {
+    uint32_t i;
+    if (!aletheia_span_ok(m, dst) || !aletheia_span_ok(m, src)) {
+        return false;
+    }
+    if (dst.size != src.size || aletheia_span_overlap(m, dst, src)) {
+        return false;
+    }
+    for (i = 0u; i < src.size; ++i) {
+        AletheiaByte b = 0u;
+        if (!aletheia_peek_u8(m, src.addr + i, &b) ||
+            !aletheia_poke_u8(m, dst.addr + i, b)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool aletheia_ptr_make(const struct AletheiaMem *m, AletheiaAddr addr,
+                              uint32_t elem_size,
+                              struct AletheiaPtr *out) {
+    if (out == NULL || elem_size == 0u || !aletheia_mem_ok(m)) {
+        return false;
+    }
+    if (!aletheia_mem_has(m, addr, elem_size)) {
+        return false;
+    }
+    out->addr = addr;
+    out->elem_size = elem_size;
+    return true;
+}
+
+static bool aletheia_ptr_ok(const struct AletheiaMem *m,
+                            struct AletheiaPtr p) {
+    return p.elem_size != 0u && aletheia_mem_has(m, p.addr, p.elem_size);
+}
+
+static bool aletheia_ptr_walk(const struct AletheiaMem *m,
+                              struct AletheiaPtr p, int32_t k,
+                              struct AletheiaPtr *out) {
+    int64_t delta;
+    int64_t next;
+    int64_t limit;
+    if (out == NULL || !aletheia_ptr_ok(m, p)) {
+        return false;
+    }
+    delta = (int64_t)k * (int64_t)p.elem_size;
+    next = (int64_t)p.addr + delta;
+    if (next < (int64_t)m->base) {
+        return false;
+    }
+    limit = (int64_t)m->base + (int64_t)m->size;
+    if (next + (int64_t)p.elem_size > limit) {
+        return false;
+    }
+    out->addr = (AletheiaAddr)next;
+    out->elem_size = p.elem_size;
+    return true;
+}
+
+static bool aletheia_ptr_diff(const struct AletheiaMem *m,
+                              struct AletheiaPtr a, struct AletheiaPtr b,
+                              int32_t *out) {
+    int64_t diff;
+    int64_t quotient;
+    if (out == NULL || a.elem_size != b.elem_size) {
+        return false;
+    }
+    if (!aletheia_ptr_ok(m, a) || !aletheia_ptr_ok(m, b)) {
+        return false;
+    }
+    diff = (int64_t)a.addr - (int64_t)b.addr;
+    if (diff % (int64_t)a.elem_size != 0) {
+        return false;
+    }
+    quotient = diff / (int64_t)a.elem_size;
+    if (quotient < (int64_t)INT32_MIN ||
+        quotient > (int64_t)INT32_MAX) {
+        return false;
+    }
+    *out = (int32_t)quotient;
+    return true;
+}
+
+static bool aletheia_ptr_read_u8(const struct AletheiaMem *m,
+                                 struct AletheiaPtr p, AletheiaByte *out) {
+    if (out == NULL || !aletheia_ptr_ok(m, p)) {
+        return false;
+    }
+    return aletheia_peek_u8(m, p.addr, out);
+}
+
+static bool aletheia_ptr_write_u8(const struct AletheiaMem *m,
+                                  struct AletheiaPtr p,
+                                  AletheiaByte value) {
+    if (!aletheia_ptr_ok(m, p)) {
+        return false;
+    }
+    return aletheia_poke_u8(m, p.addr, value);
+}
+
+static bool aletheia_arr_ok(const struct AletheiaMem *m,
+                            struct AletheiaArr a) {
+    uint64_t total;
+    if (!aletheia_mem_ok(m) || a.elem_size == 0u || a.count == 0u) {
+        return false;
+    }
+    total = (uint64_t)a.elem_size * (uint64_t)a.count;
+    if (total > (uint64_t)m->size) {
+        return false;
+    }
+    if (a.addr < m->base) {
+        return false;
+    }
+    return (uint64_t)(a.addr - m->base) <=
+           (uint64_t)m->size - total;
+}
+
+static bool aletheia_arr_make(const struct AletheiaMem *m, AletheiaAddr addr,
+                              uint32_t elem_size, uint32_t count,
+                              struct AletheiaArr *out) {
+    struct AletheiaArr trial;
+    if (out == NULL) {
+        return false;
+    }
+    trial.addr = addr;
+    trial.elem_size = elem_size;
+    trial.count = count;
+    if (!aletheia_arr_ok(m, trial)) {
+        return false;
+    }
+    *out = trial;
+    return true;
+}
+
+static bool aletheia_arr_at(const struct AletheiaMem *m,
+                            struct AletheiaArr a, uint32_t i,
+                            struct AletheiaPtr *out) {
+    struct AletheiaPtr base;
+    if (out == NULL || !aletheia_arr_ok(m, a) || i >= a.count) {
+        return false;
+    }
+    if (!aletheia_ptr_make(m, a.addr, a.elem_size, &base)) {
+        return false;
+    }
+    return aletheia_ptr_walk(m, base, (int32_t)i, out);
+}
+
+static bool aletheia_arr_addr(const struct AletheiaMem *m,
+                              struct AletheiaArr a, uint32_t i,
+                              AletheiaAddr *out) {
+    struct AletheiaPtr p;
+    if (out == NULL || !aletheia_arr_at(m, a, i, &p)) {
+        return false;
+    }
+    *out = p.addr;
+    return true;
+}
+
+static bool aletheia_arr_sum(const struct AletheiaMem *m,
+                             struct AletheiaArr a, uint32_t *out) {
+    uint32_t sum = 0u;
+    uint32_t i;
+    if (out == NULL || !aletheia_arr_ok(m, a) || a.elem_size != 1u) {
+        return false;
+    }
+    for (i = 0u; i < a.count; ++i) {
+        struct AletheiaPtr p;
+        AletheiaByte v = 0u;
+        if (!aletheia_arr_at(m, a, i, &p) ||
+            !aletheia_ptr_read_u8(m, p, &v)) {
+            return false;
+        }
+        sum += (uint32_t)v;
+    }
+    *out = sum;
+    return true;
+}
+
+static bool aletheia_grid_index(uint32_t cols, uint32_t i, uint32_t j,
+                                uint32_t *out) {
+    uint64_t index;
+    if (out == NULL || cols == 0u) {
+        return false;
+    }
+    index = (uint64_t)i * (uint64_t)cols + (uint64_t)j;
+    if (index > (uint64_t)UINT32_MAX) {
+        return false;
+    }
+    *out = (uint32_t)index;
+    return true;
+}
+
+static bool aletheia_grid_addr(const struct AletheiaMem *m,
+                               AletheiaAddr base, uint32_t elem_size,
+                               uint32_t rows, uint32_t cols,
+                               uint32_t i, uint32_t j,
+                               AletheiaAddr *out) {
+    struct AletheiaArr a;
+    struct AletheiaPtr p;
+    uint64_t total;
+    uint32_t index;
+    if (out == NULL || rows == 0u || cols == 0u ||
+        i >= rows || j >= cols) {
+        return false;
+    }
+    total = (uint64_t)rows * (uint64_t)cols;
+    if (total > (uint64_t)UINT32_MAX) {
+        return false;
+    }
+    if (!aletheia_arr_make(m, base, elem_size, (uint32_t)total, &a)) {
+        return false;
+    }
+    if (!aletheia_grid_index(cols, i, j, &index)) {
+        return false;
+    }
+    if (!aletheia_arr_at(m, a, index, &p)) {
+        return false;
+    }
+    *out = p.addr;
+    return true;
+}
+
+static bool aletheia_align_pow2(uint32_t a) {
+    return a != 0u && (a & (a - 1u)) == 0u;
+}
+
+static bool aletheia_align_up(uint32_t n, uint32_t a, uint32_t *out) {
+    uint64_t v;
+    if (out == NULL || !aletheia_align_pow2(a)) {
+        return false;
+    }
+    v = ((uint64_t)n + (uint64_t)a - 1u) & ~((uint64_t)a - 1u);
+    if (v > (uint64_t)UINT32_MAX) {
+        return false;
+    }
+    *out = (uint32_t)v;
+    return true;
+}
+
+static bool aletheia_offset_table(const struct AletheiaMem *m,
+                                  AletheiaAddr base,
+                                  const struct AletheiaFieldSpec *spec,
+                                  uint32_t n,
+                                  struct AletheiaStruct *out) {
+    struct AletheiaStruct s;
+    uint64_t cursor = 0u;
+    uint32_t max_align = 1u;
+    uint32_t i;
+    if (out == NULL || spec == NULL || n == 0u ||
+        n > ALETHEIA_MAX_FIELDS) {
+        return false;
+    }
+    s.addr = base;
+    s.size = 0u;
+    s.field_count = n;
+    for (i = 0u; i < n; ++i) {
+        uint32_t offset;
+        uint64_t end;
+        if (spec[i].size == 0u || !aletheia_align_pow2(spec[i].align)) {
+            return false;
+        }
+        if (cursor > (uint64_t)UINT32_MAX) {
+            return false;
+        }
+        if (!aletheia_align_up((uint32_t)cursor, spec[i].align,
+                               &offset)) {
+            return false;
+        }
+        end = (uint64_t)offset + (uint64_t)spec[i].size;
+        if (end > (uint64_t)UINT32_MAX) {
+            return false;
+        }
+        s.fields[i].offset = offset;
+        s.fields[i].size = spec[i].size;
+        s.fields[i].align = spec[i].align;
+        cursor = end;
+        if (spec[i].align > max_align) {
+            max_align = spec[i].align;
+        }
+    }
+    {
+        uint64_t total;
+        total = (cursor + (uint64_t)max_align - 1u) &
+                ~((uint64_t)max_align - 1u);
+        if (total > (uint64_t)UINT32_MAX ||
+            !aletheia_mem_has(m, base, (uint32_t)total)) {
+            return false;
+        }
+        s.size = (uint32_t)total;
+    }
+    *out = s;
+    return true;
+}
+
+static bool aletheia_struct_ok(const struct AletheiaMem *m,
+                               const struct AletheiaStruct *s) {
+    uint32_t max_align = 1u;
+    uint32_t i;
+    if (s == NULL || s->field_count == 0u ||
+        s->field_count > ALETHEIA_MAX_FIELDS || s->size == 0u) {
+        return false;
+    }
+    if (!aletheia_mem_has(m, s->addr, s->size)) {
+        return false;
+    }
+    for (i = 0u; i < s->field_count; ++i) {
+        struct AletheiaField f = s->fields[i];
+        if (f.size == 0u || !aletheia_align_pow2(f.align)) {
+            return false;
+        }
+        if ((f.offset & (f.align - 1u)) != 0u) {
+            return false;
+        }
+        if (i == 0u && f.offset != 0u) {
+            return false;
+        }
+        if ((uint64_t)f.offset + (uint64_t)f.size >
+            (uint64_t)s->size) {
+            return false;
+        }
+        if (i > 0u) {
+            struct AletheiaField prev = s->fields[i - 1u];
+            if ((uint64_t)f.offset <
+                (uint64_t)prev.offset + (uint64_t)prev.size) {
+                return false;
+            }
+        }
+        if (f.align > max_align) {
+            max_align = f.align;
+        }
+    }
+    return (s->size & (max_align - 1u)) == 0u;
+}
+
+static bool aletheia_field_ptr(const struct AletheiaMem *m,
+                               const struct AletheiaStruct *s, uint32_t i,
+                               struct AletheiaPtr *out) {
+    struct AletheiaField f;
+    if (s == NULL || out == NULL || !aletheia_struct_ok(m, s) ||
+        i >= s->field_count) {
+        return false;
+    }
+    f = s->fields[i];
+    return aletheia_ptr_make(m, s->addr + f.offset, f.size, out);
+}
+
+static bool aletheia_struct_at(const struct AletheiaMem *m,
+                               const struct AletheiaStruct *s, uint32_t i,
+                               AletheiaAddr *out) {
+    uint64_t addr;
+    if (s == NULL || out == NULL || !aletheia_struct_ok(m, s)) {
+        return false;
+    }
+    addr = (uint64_t)s->addr + (uint64_t)i * (uint64_t)s->size;
+    if (addr + (uint64_t)s->size >
+        (uint64_t)m->base + (uint64_t)m->size) {
+        return false;
+    }
+    *out = (AletheiaAddr)addr;
+    return true;
+}
+
+static bool aletheia_str_ok(const struct AletheiaMem *m,
+                            const struct AletheiaStr *s) {
+    struct AletheiaPtr p;
+    if (s == NULL || s->capacity == 0u) {
+        return false;
+    }
+    return aletheia_ptr_make(m, s->addr, s->capacity, &p);
+}
+
+static bool aletheia_str_make(const struct AletheiaMem *m,
+                              AletheiaAddr addr, uint32_t capacity,
+                              struct AletheiaStr *out) {
+    struct AletheiaStr trial;
+    if (out == NULL) {
+        return false;
+    }
+    trial.addr = addr;
+    trial.capacity = capacity;
+    if (!aletheia_str_ok(m, &trial)) {
+        return false;
+    }
+    *out = trial;
+    return true;
+}
+
+static bool aletheia_str_byte(const struct AletheiaMem *m,
+                              const struct AletheiaStr *s, uint32_t i,
+                              AletheiaByte *out) {
+    struct AletheiaPtr p;
+    if (s == NULL || out == NULL || !aletheia_str_ok(m, s) ||
+        i >= s->capacity) {
+        return false;
+    }
+    if (!aletheia_ptr_make(m, s->addr + i, 1u, &p)) {
+        return false;
+    }
+    return aletheia_ptr_read_u8(m, p, out);
+}
+
+static bool aletheia_str_poke(const struct AletheiaMem *m,
+                              const struct AletheiaStr *s, uint32_t i,
+                              AletheiaByte value) {
+    struct AletheiaPtr p;
+    if (s == NULL || !aletheia_str_ok(m, s) || i >= s->capacity) {
+        return false;
+    }
+    if (!aletheia_ptr_make(m, s->addr + i, 1u, &p)) {
+        return false;
+    }
+    return aletheia_ptr_write_u8(m, p, value);
+}
+
+static bool aletheia_strlen(const struct AletheiaMem *m,
+                            const struct AletheiaStr *s, uint32_t *out) {
+    struct AletheiaPtr base;
+    uint32_t i;
+    if (out == NULL || !aletheia_str_ok(m, s)) {
+        return false;
+    }
+    if (!aletheia_ptr_make(m, s->addr, 1u, &base)) {
+        return false;
+    }
+    for (i = 0u; i < s->capacity; ++i) {
+        struct AletheiaPtr p;
+        AletheiaByte b = 0u;
+        if (!aletheia_ptr_walk(m, base, (int32_t)i, &p) ||
+            !aletheia_ptr_read_u8(m, p, &b)) {
+            return false;
+        }
+        if (b == 0u) {
+            *out = i;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool aletheia_str_put(const struct AletheiaMem *m,
+                             const struct AletheiaStr *s,
+                             const char *text) {
+    uint32_t n = 0u;
+    uint32_t i;
+    if (s == NULL || text == NULL || !aletheia_str_ok(m, s)) {
+        return false;
+    }
+    while (text[n] != '\0') {
+        ++n;
+    }
+    if (n >= s->capacity) {
+        return false;
+    }
+    for (i = 0u; i < n; ++i) {
+        if (!aletheia_str_poke(m, s, i, (AletheiaByte)text[i])) {
+            return false;
+        }
+    }
+    return aletheia_str_poke(m, s, n, 0u);
+}
+
+static bool aletheia_str_eq_text(const struct AletheiaMem *m,
+                                 const struct AletheiaStr *s,
+                                 const char *text) {
+    uint32_t n;
+    uint32_t i;
+    if (text == NULL || !aletheia_strlen(m, s, &n)) {
+        return false;
+    }
+    for (i = 0u; i < n; ++i) {
+        AletheiaByte b = 0u;
+        if (text[i] == '\0' || !aletheia_str_byte(m, s, i, &b) ||
+            b != (AletheiaByte)text[i]) {
+            return false;
+        }
+    }
+    return text[n] == '\0';
+}
+
+static bool aletheia_str_print(const struct AletheiaMem *m,
+                               const struct AletheiaStr *s) {
+    uint32_t n = 0u;
+    uint32_t limit;
+    uint32_t i;
+    bool terminated;
+    if (!aletheia_str_ok(m, s)) {
+        printf("(bad string)");
+        return false;
+    }
+    terminated = aletheia_strlen(m, s, &n);
+    limit = terminated ? n : s->capacity;
+    for (i = 0u; i < limit; ++i) {
+        AletheiaByte b = 0u;
+        if (!aletheia_str_byte(m, s, i, &b)) {
+            return false;
+        }
+        putchar((int)b);
+    }
+    if (!terminated) {
+        printf("(unterminated)");
+    }
+    return terminated;
+}
+
+static bool aletheia_store_ok(const struct AletheiaMem *m,
+                              const struct AletheiaStore *s) {
+    if (s == NULL || s->size == 0u || !aletheia_mem_ok(m)) {
+        return false;
+    }
+    return aletheia_mem_has(m, s->base, s->size);
+}
+
+static bool aletheia_store_make(const struct AletheiaMem *m,
+                                AletheiaAddr base, uint32_t size,
+                                struct AletheiaStore *out) {
+    struct AletheiaStore trial;
+    if (out == NULL) {
+        return false;
+    }
+    trial.base = base;
+    trial.size = size;
+    if (!aletheia_store_ok(m, &trial)) {
+        return false;
+    }
+    *out = trial;
+    return true;
+}
+
+static bool aletheia_store_has(const struct AletheiaMem *m,
+                               const struct AletheiaStore *s,
+                               AletheiaAddr addr, uint32_t width) {
+    uint32_t off;
+    if (!aletheia_store_ok(m, s)) {
+        return false;
+    }
+    if (width != 1u && width != 2u && width != 4u) {
+        return false;
+    }
+    if (width > s->size || addr < s->base) {
+        return false;
+    }
+    off = addr - s->base;
+    if (off > s->size - width) {
+        return false;
+    }
+    return aletheia_mem_has(m, addr, width);
+}
+
+static bool aletheia_store_span(const struct AletheiaMem *m,
+                                const struct AletheiaStore *s,
+                                AletheiaAddr addr, uint32_t n) {
+    uint32_t off;
+    if (!aletheia_store_ok(m, s) || n == 0u) {
+        return false;
+    }
+    if (n > s->size || addr < s->base) {
+        return false;
+    }
+    off = addr - s->base;
+    if (off > s->size - n) {
+        return false;
+    }
+    return aletheia_mem_has(m, addr, n);
+}
+
+static bool aletheia_store_read_le(const struct AletheiaMem *m,
+                                   const struct AletheiaStore *s,
+                                   AletheiaAddr addr, uint32_t width,
+                                   uint32_t *out) {
+    if (out == NULL || !aletheia_store_has(m, s, addr, width)) {
+        return false;
+    }
+    return aletheia_mem_read_le(m, addr, width, out);
+}
+
+static bool aletheia_store_write_le(const struct AletheiaMem *m,
+                                    const struct AletheiaStore *s,
+                                    AletheiaAddr addr, uint32_t width,
+                                    uint32_t value) {
+    if (!aletheia_store_has(m, s, addr, width)) {
+        return false;
+    }
+    return aletheia_mem_write_le(m, addr, width, value);
+}
+
+static bool aletheia_store_read_u32(const struct AletheiaMem *m,
+                                    const struct AletheiaStore *s,
+                                    AletheiaAddr addr, uint32_t *out) {
+    return aletheia_store_read_le(m, s, addr, 4u, out);
+}
+
+static bool aletheia_store_write_u32(const struct AletheiaMem *m,
+                                     const struct AletheiaStore *s,
+                                     AletheiaAddr addr, uint32_t value) {
+    return aletheia_store_write_le(m, s, addr, 4u, value);
+}
+
+static bool aletheia_label_ok(const char *label) {
+    uint32_t i;
+    if (label == NULL || label[0] == '\0') {
+        return false;
+    }
+    for (i = 0u; i < ALETHEIA_LABEL; ++i) {
+        if (label[i] == '\0') {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool aletheia_label_copy(char *dst, const char *src) {
+    uint32_t i;
+    if (dst == NULL || !aletheia_label_ok(src)) {
+        return false;
+    }
+    for (i = 0u; i < ALETHEIA_LABEL; ++i) {
+        dst[i] = src[i];
+        if (src[i] == '\0') {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool aletheia_tape_ok(const struct AletheiaMem *m,
+                             const struct AletheiaTape *t) {
+    struct AletheiaStore region;
+    AletheiaAddr cursor;
+    uint32_t i;
+    if (t == NULL || t->mark_count > ALETHEIA_MAX_MARKS) {
+        return false;
+    }
+    if (!aletheia_store_make(m, t->base, t->size, &region)) {
+        return false;
+    }
+    cursor = t->base;
+    for (i = 0u; i < t->mark_count; ++i) {
+        const struct AletheiaMark *mk = &t->marks[i];
+        uint32_t off;
+        if (mk->size == 0u || mk->size > t->size ||
+            !aletheia_label_ok(mk->label)) {
+            return false;
+        }
+        if (mk->addr < cursor) {
+            return false;
+        }
+        off = mk->addr - t->base;
+        if (off > t->size - mk->size) {
+            return false;
+        }
+        cursor = mk->addr + mk->size;
+    }
+    return true;
+}
+
+static bool aletheia_tape_make(const struct AletheiaMem *m,
+                               AletheiaAddr base, uint32_t size,
+                               struct AletheiaTape *out) {
     struct AletheiaTape trial;
     uint32_t i;
-    if (t == NULL) {
+    uint32_t j;
+    if (out == NULL) {
         return false;
     }
     trial.base = base;
     trial.size = size;
     trial.mark_count = 0u;
     for (i = 0u; i < ALETHEIA_MAX_MARKS; ++i) {
-        uint32_t j;
         trial.marks[i].addr = 0u;
         trial.marks[i].size = 0u;
         for (j = 0u; j < ALETHEIA_LABEL; ++j) {
             trial.marks[i].label[j] = '\0';
         }
     }
-    if (!aletheia_tape_ok(&trial)) {
+    if (!aletheia_tape_ok(m, &trial)) {
         return false;
     }
-    *t = trial;
+    *out = trial;
     return true;
 }
 
-static bool aletheia_tape_mark(struct AletheiaTape *t, AletheiaAddr addr,
+static bool aletheia_tape_mark(const struct AletheiaMem *m,
+                               struct AletheiaTape *t, AletheiaAddr addr,
                                uint32_t size, const char *label) {
-    struct AletheiaMark m;
+    struct AletheiaMark mk;
     uint32_t off;
-    if (t == NULL || label == NULL || !aletheia_tape_ok(t)) {
+    if (t == NULL || label == NULL || !aletheia_tape_ok(m, t)) {
         return false;
     }
     if (t->mark_count >= ALETHEIA_MAX_MARKS || size == 0u ||
@@ -694,46 +1470,47 @@ static bool aletheia_tape_mark(struct AletheiaTape *t, AletheiaAddr addr,
         return false;
     }
     if (t->mark_count > 0u) {
-        const struct AletheiaMark *last = &t->marks[t->mark_count - 1u];
+        const struct AletheiaMark *last =
+            &t->marks[t->mark_count - 1u];
         if (last->addr + last->size > addr) {
             return false;
         }
     }
-    m.addr = addr;
-    m.size = size;
-    for (off = 0u; off < ALETHEIA_LABEL; ++off) {
-        m.label[off] = '\0';
-    }
-    if (!aletheia_label_copy(m.label, label)) {
+    mk.addr = addr;
+    mk.size = size;
+    if (!aletheia_label_copy(mk.label, label)) {
         return false;
     }
-    t->marks[t->mark_count] = m;
+    t->marks[t->mark_count] = mk;
     t->mark_count += 1u;
     return true;
 }
 
-static bool aletheia_tape_find(const struct AletheiaTape *t, AletheiaAddr addr,
-                               uint32_t *index, uint32_t *offset) {
+static bool aletheia_tape_find(const struct AletheiaMem *m,
+                               const struct AletheiaTape *t,
+                               AletheiaAddr addr, uint32_t *index,
+                               uint32_t *offset) {
     uint32_t i;
-    if (index == NULL || offset == NULL || !aletheia_tape_ok(t)) {
+    if (index == NULL || offset == NULL || !aletheia_tape_ok(m, t)) {
         return false;
     }
     for (i = 0u; i < t->mark_count; ++i) {
-        const struct AletheiaMark *m = &t->marks[i];
-        if (addr >= m->addr && addr < m->addr + m->size) {
+        const struct AletheiaMark *mk = &t->marks[i];
+        if (addr >= mk->addr && addr < mk->addr + mk->size) {
             *index = i;
-            *offset = addr - m->addr;
+            *offset = addr - mk->addr;
             return true;
         }
     }
     return false;
 }
 
-static bool aletheia_tape_cover(const struct AletheiaTape *t,
+static bool aletheia_tape_cover(const struct AletheiaMem *m,
+                                const struct AletheiaTape *t,
                                 uint32_t *covered, uint32_t *gaps) {
     uint32_t total = 0u;
     uint32_t i;
-    if (covered == NULL || gaps == NULL || !aletheia_tape_ok(t)) {
+    if (covered == NULL || gaps == NULL || !aletheia_tape_ok(m, t)) {
         return false;
     }
     for (i = 0u; i < t->mark_count; ++i) {
@@ -744,10 +1521,20 @@ static bool aletheia_tape_cover(const struct AletheiaTape *t,
     return true;
 }
 
-static bool aletheia_hexdump(const struct AletheiaMem *m, AletheiaAddr addr,
-                             uint32_t n) {
+static bool aletheia_tape_store(const struct AletheiaMem *m,
+                                const struct AletheiaTape *t,
+                                struct AletheiaStore *out) {
+    if (t == NULL) {
+        return false;
+    }
+    return aletheia_store_make(m, t->base, t->size, out);
+}
+
+static bool aletheia_hexdump(const struct AletheiaMem *m,
+                             const struct AletheiaStore *s,
+                             AletheiaAddr addr, uint32_t n) {
     uint32_t done = 0u;
-    if (!aletheia_mem_has(m, addr, n)) {
+    if (!aletheia_store_span(m, s, addr, n)) {
         return false;
     }
     while (done < n) {
@@ -789,58 +1576,18 @@ static long long aletheia_signed32(uint32_t v) {
     return (long long)v - 4294967296LL;
 }
 
-static bool aletheia_align_ok(uint32_t a) {
-    return a != 0u && (a & (a - 1u)) == 0u;
-}
-
-static bool aletheia_round_up(uint32_t value, uint32_t align, uint32_t *out) {
-    uint64_t r;
-    if (out == NULL || !aletheia_align_ok(align)) {
-        return false;
-    }
-    r = ((uint64_t)value + align - 1u) / align * align;
-    if (r > 0xffffffffu) {
-        return false;
-    }
-    *out = (uint32_t)r;
-    return true;
-}
-
-static bool aletheia_layout_offsets(const struct AletheiaField *fields,
-                                    uint32_t count, uint32_t *offsets,
-                                    uint32_t *total) {
-    uint32_t off = 0u;
-    uint32_t max_align = 1u;
-    uint32_t i;
-    if (fields == NULL || offsets == NULL || total == NULL || count == 0u) {
-        return false;
-    }
-    for (i = 0u; i < count; ++i) {
-        uint64_t end;
-        if (fields[i].size == 0u || !aletheia_align_ok(fields[i].align)) {
-            return false;
-        }
-        if (!aletheia_round_up(off, fields[i].align, &off)) {
-            return false;
-        }
-        offsets[i] = off;
-        end = (uint64_t)off + fields[i].size;
-        if (end > 0xffffffffu) {
-            return false;
-        }
-        off = (uint32_t)end;
-        if (fields[i].align > max_align) {
-            max_align = fields[i].align;
-        }
-    }
-    return aletheia_round_up(off, max_align, total);
-}
-
 static bool aletheia_fill_boot(const struct AletheiaMem *m) {
-    static const char signature[8] = {'A', 'L', 'E', 'T', 'H', 'E', 'I', 'A'};
+    static const char signature[8] = {
+        'A', 'L', 'E', 'T', 'H', 'E', 'I', 'A'
+    };
     uint32_t i;
+    if (!aletheia_span_fill(m, aletheia_regions[REGION_BOOT].span, 0u)) {
+        return false;
+    }
     for (i = 0u; i < 8u; ++i) {
-        if (!aletheia_poke_u8(m, 0x00000u + i, (AletheiaByte)signature[i])) {
+        if (!aletheia_poke_u8(
+                m, aletheia_regions[REGION_BOOT].span.addr + i,
+                (AletheiaByte)signature[i])) {
             return false;
         }
     }
@@ -852,77 +1599,118 @@ static bool aletheia_fill_data(const struct AletheiaMem *m) {
         0x00000000u, 0x00000001u, 0xffffffffu, 0x12345678u,
         0xdeadbeefu, 0x0000002au, 0x7fffffffu, 0x80000000u
     };
+    AletheiaAddr base = aletheia_regions[REGION_DATA].span.addr;
     uint32_t i;
+    if (!aletheia_span_fill(m, aletheia_regions[REGION_DATA].span, 0u)) {
+        return false;
+    }
     for (i = 0u; i < 8u; ++i) {
-        if (!aletheia_write_u32(m, 0x01000u + i * 4u, values[i])) {
+        if (!aletheia_write_u32(m, base + i * 4u, values[i])) {
             return false;
         }
     }
-    if (!aletheia_write_u32(m, 0x01020u, 7u)) {
-        return false;
-    }
-    if (!aletheia_mem_write_le(m, 0x01024u, 2u, 3u)) {
-        return false;
-    }
-    if (!aletheia_poke_u8(m, 0x01026u, 1u)) {
-        return false;
-    }
-    if (!aletheia_poke_u8(m, 0x01027u, 2u)) {
-        return false;
-    }
-    if (!aletheia_write_u32(m, 0x01028u, 0x01000u)) {
-        return false;
-    }
-    {
-        static const char text[9] = {'A', 'l', 'e', 't', 'h', 'e', 'i', 'a', '\0'};
-        for (i = 0u; i < 9u; ++i) {
-            if (!aletheia_poke_u8(m, 0x01040u + i, (AletheiaByte)text[i])) {
-                return false;
-            }
+    for (i = 0u; i < 12u; ++i) {
+        if (!aletheia_poke_u8(m, base + 0x60u + i,
+                              (AletheiaByte)(i + 1u))) {
+            return false;
         }
     }
-    if (!aletheia_write_u32(m, 0x3f1f8u, 42u)) {
+    return true;
+}
+
+static bool aletheia_fill_stack(const struct AletheiaMem *m) {
+    struct AletheiaSpan stack = aletheia_regions[REGION_STACK].span;
+    AletheiaAddr end = 0u;
+    if (!aletheia_span_fill(m, stack, 0u) ||
+        !aletheia_span_end(m, stack, &end)) {
         return false;
     }
-    if (!aletheia_write_u32(m, 0x3f1fcu, 0x00100u)) {
+    if (!aletheia_write_u32(m, end - 8u, 42u)) {
+        return false;
+    }
+    return aletheia_write_u32(m, end - 4u,
+                              aletheia_regions[REGION_CODE].span.addr);
+}
+
+static bool aletheia_build_record(const struct AletheiaMem *m,
+                                  struct AletheiaStruct *out) {
+    static const struct AletheiaFieldSpec specs[5] = {
+        { 4u, 4u }, { 2u, 2u }, { 1u, 1u }, { 1u, 1u }, { 4u, 4u }
+    };
+    AletheiaAddr base = aletheia_regions[REGION_DATA].span.addr + 0x20u;
+    return aletheia_offset_table(m, base, specs, 5u, out);
+}
+
+static bool aletheia_fill_record(const struct AletheiaMem *m,
+                                 const struct AletheiaStruct *rec) {
+    struct AletheiaStore store;
+    struct AletheiaPtr p;
+    if (!aletheia_store_make(m, rec->addr, rec->size, &store)) {
+        return false;
+    }
+    if (!aletheia_field_ptr(m, rec, 0u, &p) ||
+        !aletheia_store_write_u32(m, &store, p.addr, 7u)) {
+        return false;
+    }
+    if (!aletheia_field_ptr(m, rec, 1u, &p) ||
+        !aletheia_store_write_le(m, &store, p.addr, 2u, 3u)) {
+        return false;
+    }
+    if (!aletheia_field_ptr(m, rec, 2u, &p) ||
+        !aletheia_store_write_le(m, &store, p.addr, 1u, 1u)) {
+        return false;
+    }
+    if (!aletheia_field_ptr(m, rec, 3u, &p) ||
+        !aletheia_store_write_le(m, &store, p.addr, 1u, 2u)) {
+        return false;
+    }
+    if (!aletheia_field_ptr(m, rec, 4u, &p) ||
+        !aletheia_store_write_u32(
+            m, &store, p.addr,
+            aletheia_regions[REGION_DATA].span.addr)) {
         return false;
     }
     return true;
 }
 
-static bool aletheia_build_tape(struct AletheiaTape *t) {
-    if (!aletheia_tape_make(t, 0u, ALETHEIA_SIZE)) {
+static bool aletheia_build_string(const struct AletheiaMem *m,
+                                  struct AletheiaStr *out) {
+    AletheiaAddr base = aletheia_regions[REGION_DATA].span.addr + 0x40u;
+    if (!aletheia_str_make(m, base, 32u, out)) {
         return false;
     }
-    if (!aletheia_tape_mark(t, 0x00000u, 0x40u, "boot")) {
-        return false;
-    }
-    if (!aletheia_tape_mark(t, 0x00100u, 0x200u, "code")) {
-        return false;
-    }
-    if (!aletheia_tape_mark(t, 0x01000u, 0x100u, "data")) {
-        return false;
-    }
-    if (!aletheia_tape_mark(t, 0x3f000u, 0x200u, "stack")) {
-        return false;
-    }
-    if (!aletheia_tape_mark(t, 0x3f200u, 0x0e00u, "free")) {
-        return false;
-    }
-    return true;
+    return aletheia_str_put(m, out, "Aletheia");
 }
 
-static bool aletheia_check_marks(const struct AletheiaTape *t) {
+static bool aletheia_build_tape(const struct AletheiaMem *m,
+                                struct AletheiaTape *out) {
     uint32_t i;
-    if (!aletheia_tape_ok(t)) {
+    if (!aletheia_tape_make(m, 0u, ALETHEIA_SIZE, out)) {
+        return false;
+    }
+    for (i = 0u; i < (uint32_t)REGION_COUNT; ++i) {
+        const struct AletheiaRegion *r = &aletheia_regions[i];
+        if (!aletheia_tape_mark(m, out, r->span.addr, r->span.size,
+                                r->label)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool aletheia_check_marks(const struct AletheiaMem *m,
+                                 const struct AletheiaTape *t) {
+    uint32_t i;
+    if (!aletheia_tape_ok(m, t)) {
         return false;
     }
     printf("MARKS\n");
     printf("LABEL START END   SIZE\n");
     for (i = 0u; i < t->mark_count; ++i) {
-        const struct AletheiaMark *m = &t->marks[i];
-        printf("%-5s 0x%05x 0x%05x %5u\n", m->label, (unsigned)m->addr,
-               (unsigned)(m->addr + m->size), (unsigned)m->size);
+        const struct AletheiaMark *mk = &t->marks[i];
+        printf("%-5s 0x%05x 0x%05x %5u\n", mk->label,
+               (unsigned)mk->addr, (unsigned)(mk->addr + mk->size),
+               (unsigned)mk->size);
     }
     return true;
 }
@@ -943,7 +1731,8 @@ static bool aletheia_text_eq(const char *a, const char *b) {
     return false;
 }
 
-static bool aletheia_check_find(const struct AletheiaTape *t) {
+static bool aletheia_check_find(const struct AletheiaMem *m,
+                                const struct AletheiaTape *t) {
     static const AletheiaAddr addrs[10] = {
         0x00000u, 0x0003fu, 0x00100u, 0x01000u, 0x010ffu,
         0x3f1ffu, 0x3f200u, 0x3ffffu, 0x00040u, 0x3e000u
@@ -961,7 +1750,8 @@ static bool aletheia_check_find(const struct AletheiaTape *t) {
     for (i = 0u; i < 10u; ++i) {
         uint32_t index = 0u;
         uint32_t offset = 0u;
-        bool found = aletheia_tape_find(t, addrs[i], &index, &offset);
+        bool found = aletheia_tape_find(m, t, addrs[i],
+                                        &index, &offset);
         if (found) {
             printf("0x%05x %-5s %u\n", (unsigned)addrs[i],
                    t->marks[index].label, (unsigned)offset);
@@ -970,7 +1760,8 @@ static bool aletheia_check_find(const struct AletheiaTape *t) {
                 return false;
             }
         } else {
-            printf("0x%05x %-5s %u\n", (unsigned)addrs[i], "(gap)", 0u);
+            printf("0x%05x %-5s %u\n", (unsigned)addrs[i],
+                   "(gap)", 0u);
             if (labels[i][0] != '(') {
                 return false;
             }
@@ -979,19 +1770,26 @@ static bool aletheia_check_find(const struct AletheiaTape *t) {
     return true;
 }
 
-static bool aletheia_check_paper(const struct AletheiaMem *m) {
+static bool aletheia_check_paper(const struct AletheiaMem *m,
+                                 const struct AletheiaTape *t) {
     static const uint32_t expected[8] = {
         0x00000000u, 0x00000001u, 0xffffffffu, 0x12345678u,
         0xdeadbeefu, 0x0000002au, 0x7fffffffu, 0x80000000u
     };
+    struct AletheiaStore full;
+    AletheiaAddr base = aletheia_regions[REGION_DATA].span.addr;
     uint32_t i;
+    if (!aletheia_tape_store(m, t, &full)) {
+        return false;
+    }
     printf("\nPAPER TAPE\n");
     printf("ADDR    BYTES       HEX      UNSIGNED   SIGNED\n");
     for (i = 0u; i < 8u; ++i) {
-        AletheiaAddr addr = 0x01000u + i * 4u;
+        AletheiaAddr addr = base + i * 4u;
         uint32_t value = 0u;
         uint32_t j;
-        if (!aletheia_read_u32(m, addr, &value) || value != expected[i]) {
+        if (!aletheia_store_read_u32(m, &full, addr, &value) ||
+            value != expected[i]) {
             return false;
         }
         printf("0x%05x ", (unsigned)addr);
@@ -1002,113 +1800,178 @@ static bool aletheia_check_paper(const struct AletheiaMem *m) {
             }
             printf("%02x ", (unsigned)b);
         }
-        printf(" %08x %10u %10lld\n", (unsigned)value, (unsigned)value,
-               aletheia_signed32(value));
+        printf(" %08x %10u %10lld\n", (unsigned)value,
+               (unsigned)value, aletheia_signed32(value));
     }
     return true;
 }
 
 static bool aletheia_check_ptr(const struct AletheiaMem *m) {
+    struct AletheiaPtr base;
+    AletheiaAddr data = aletheia_regions[REGION_DATA].span.addr;
     uint32_t i;
+    if (!aletheia_ptr_make(m, data, 4u, &base)) {
+        return false;
+    }
     printf("\nPTR\n");
-    printf("INDEX ADDR    EXPECT  OK\n");
+    printf("INDEX ADDR    EXPECT  DELTA OK\n");
     for (i = 0u; i < 8u; ++i) {
-        AletheiaAddr addr = 0u;
-        AletheiaAddr expect = 0x01000u + i * 4u;
-        if (!aletheia_addr_of(m, 0x01000u, i, 4u, &addr)) {
+        struct AletheiaPtr p;
+        AletheiaAddr expect = data + i * 4u;
+        AletheiaAddr computed = 0u;
+        int32_t delta = 0;
+        bool ok;
+        if (!aletheia_ptr_walk(m, base, (int32_t)i, &p) ||
+            !aletheia_ptr_diff(m, p, base, &delta) ||
+            !aletheia_addr_of(m, data, i, 4u, &computed)) {
             return false;
         }
-        printf("%5u 0x%05x 0x%05x %s\n", (unsigned)i, (unsigned)addr,
-               (unsigned)expect, addr == expect ? "true" : "false");
-        if (addr != expect) {
+        ok = p.addr == expect && computed == expect &&
+             delta == (int32_t)i;
+        printf("%5u 0x%05x 0x%05x %5d %s\n", (unsigned)i,
+               (unsigned)p.addr, (unsigned)expect, (int)delta,
+               ok ? "true" : "false");
+        if (!ok) {
             return false;
         }
     }
     return true;
 }
 
-static bool aletheia_check_layout(void) {
-    static const struct AletheiaField fields[5] = {
-        {"id", 4u, 4u},
-        {"flags", 2u, 2u},
-        {"kind", 1u, 1u},
-        {"tag", 1u, 1u},
-        {"next", 4u, 4u}
+static bool aletheia_check_array(const struct AletheiaMem *m) {
+    AletheiaAddr base = aletheia_regions[REGION_DATA].span.addr + 0x60u;
+    struct AletheiaArr bytes;
+    struct AletheiaPtr p;
+    AletheiaAddr at7 = 0u;
+    AletheiaAddr grid = 0u;
+    uint32_t sum = 0u;
+    bool ok;
+    if (!aletheia_arr_make(m, base, 1u, 12u, &bytes) ||
+        !aletheia_arr_sum(m, bytes, &sum) ||
+        !aletheia_arr_at(m, bytes, 7u, &p) ||
+        !aletheia_arr_addr(m, bytes, 7u, &at7) ||
+        !aletheia_grid_addr(m, base, 1u, 3u, 4u, 1u, 2u, &grid)) {
+        return false;
+    }
+    printf("\nARRAY\n");
+    printf("BASE  0x%05x\n", (unsigned)base);
+    printf("COUNT %u\n", (unsigned)bytes.count);
+    printf("SUM   %u\n", (unsigned)sum);
+    printf("AT7   0x%05x\n", (unsigned)p.addr);
+    printf("GRID  1,2 0x%05x\n", (unsigned)grid);
+    ok = sum == 78u && p.addr == base + 7u && at7 == base + 7u &&
+         grid == base + 6u;
+    return ok;
+}
+
+static bool aletheia_check_layout(const struct AletheiaMem *m,
+                                  const struct AletheiaStruct *rec) {
+    static const char *const names[5] = {
+        "id", "flags", "kind", "tag", "next"
     };
-    static const uint32_t expected[5] = {0u, 4u, 6u, 7u, 8u};
-    uint32_t offsets[5];
-    uint32_t total = 0u;
+    static const uint32_t expected[5] = { 0u, 4u, 6u, 7u, 8u };
     uint32_t i;
-    if (!aletheia_layout_offsets(fields, 5u, offsets, &total)) {
+    if (!aletheia_struct_ok(m, rec)) {
         return false;
     }
     printf("\nLAYOUT\n");
     printf("FIELD OFFSET SIZE\n");
     for (i = 0u; i < 5u; ++i) {
-        printf("%-5s %6u %4u\n", fields[i].name, (unsigned)offsets[i],
-               (unsigned)fields[i].size);
-        if (offsets[i] != expected[i]) {
+        printf("%-5s %6u %4u\n", names[i],
+               (unsigned)rec->fields[i].offset,
+               (unsigned)rec->fields[i].size);
+        if (rec->fields[i].offset != expected[i]) {
             return false;
         }
     }
-    printf("TOTAL %6u\n", (unsigned)total);
-    return total == 12u;
+    printf("TOTAL %6u\n", (unsigned)rec->size);
+    return rec->size == 12u;
 }
 
-static bool aletheia_check_record(const struct AletheiaMem *m) {
+static bool aletheia_check_record(const struct AletheiaMem *m,
+                                  const struct AletheiaStruct *rec) {
+    struct AletheiaStore store;
+    struct AletheiaPtr p;
+    AletheiaAddr inst0 = 0u;
+    AletheiaAddr inst1 = 0u;
     uint32_t id = 0u;
     uint32_t flags = 0u;
+    uint32_t kind = 0u;
+    uint32_t tag = 0u;
     uint32_t next = 0u;
-    AletheiaByte kind = 0u;
-    AletheiaByte tag = 0u;
-    if (!aletheia_read_u32(m, 0x01020u, &id) ||
-        !aletheia_mem_read_le(m, 0x01024u, 2u, &flags) ||
-        !aletheia_peek_u8(m, 0x01026u, &kind) ||
-        !aletheia_peek_u8(m, 0x01027u, &tag) ||
-        !aletheia_read_u32(m, 0x01028u, &next)) {
+    if (!aletheia_store_make(m, rec->addr, rec->size, &store)) {
+        return false;
+    }
+    if (!aletheia_field_ptr(m, rec, 0u, &p) ||
+        !aletheia_store_read_u32(m, &store, p.addr, &id)) {
+        return false;
+    }
+    if (!aletheia_field_ptr(m, rec, 1u, &p) ||
+        !aletheia_store_read_le(m, &store, p.addr, 2u, &flags)) {
+        return false;
+    }
+    if (!aletheia_field_ptr(m, rec, 2u, &p) ||
+        !aletheia_store_read_le(m, &store, p.addr, 1u, &kind)) {
+        return false;
+    }
+    if (!aletheia_field_ptr(m, rec, 3u, &p) ||
+        !aletheia_store_read_le(m, &store, p.addr, 1u, &tag)) {
+        return false;
+    }
+    if (!aletheia_field_ptr(m, rec, 4u, &p) ||
+        !aletheia_store_read_u32(m, &store, p.addr, &next)) {
+        return false;
+    }
+    if (!aletheia_struct_at(m, rec, 0u, &inst0) ||
+        !aletheia_struct_at(m, rec, 1u, &inst1)) {
         return false;
     }
     printf("\nRECORD\n");
     printf("ADDR    FIELD VALUE\n");
-    printf("0x01020 id    %u\n", (unsigned)id);
-    printf("0x01024 flags %u\n", (unsigned)flags);
-    printf("0x01026 kind  %u\n", (unsigned)kind);
-    printf("0x01027 tag   %u\n", (unsigned)tag);
-    printf("0x01028 next  0x%05x\n", (unsigned)next);
+    printf("0x%05x id    %u\n", (unsigned)rec->addr, (unsigned)id);
+    printf("0x%05x flags %u\n", (unsigned)(rec->addr + 4u),
+           (unsigned)flags);
+    printf("0x%05x kind  %u\n", (unsigned)(rec->addr + 6u),
+           (unsigned)kind);
+    printf("0x%05x tag   %u\n", (unsigned)(rec->addr + 7u),
+           (unsigned)tag);
+    printf("0x%05x next  0x%05x\n", (unsigned)(rec->addr + 8u),
+           (unsigned)next);
+    printf("INSTANCE 0 0x%05x\n", (unsigned)inst0);
+    printf("INSTANCE 1 0x%05x\n", (unsigned)inst1);
     return id == 7u && flags == 3u && kind == 1u && tag == 2u &&
-           next == 0x01000u;
+           next == aletheia_regions[REGION_DATA].span.addr &&
+           inst0 == rec->addr && inst1 == rec->addr + rec->size;
 }
 
-static bool aletheia_check_string(const struct AletheiaMem *m) {
+static bool aletheia_check_string(const struct AletheiaMem *m,
+                                  const struct AletheiaStr *s) {
     uint32_t len = 0u;
-    uint32_t i;
-    printf("\nSTRING\n");
-    printf("TEXT ");
-    for (i = 0u; i < 32u; ++i) {
-        AletheiaByte b = 0u;
-        if (!aletheia_peek_u8(m, 0x01040u + i, &b)) {
-            return false;
-        }
-        if (b == 0u) {
-            break;
-        }
-        putchar((int)b);
-        len += 1u;
+    printf("\nSTRING\nTEXT ");
+    if (!aletheia_str_print(m, s)) {
+        return false;
+    }
+    if (!aletheia_strlen(m, s, &len)) {
+        return false;
     }
     printf("\nLEN  %u\n", (unsigned)len);
-    return len == 8u;
+    return len == 8u && aletheia_str_eq_text(m, s, "Aletheia");
 }
 
 static bool aletheia_check_boot(const struct AletheiaMem *m) {
-    static const char expect[8] = {'A', 'L', 'E', 'T', 'H', 'E', 'I', 'A'};
+    static const char expect[8] = {
+        'A', 'L', 'E', 'T', 'H', 'E', 'I', 'A'
+    };
+    struct AletheiaSpan boot = aletheia_regions[REGION_BOOT].span;
     uint32_t i;
+    if (!aletheia_span_ok(m, boot)) {
+        return false;
+    }
     printf("\nBOOT\nSIGNATURE ");
     for (i = 0u; i < 8u; ++i) {
         AletheiaByte b = 0u;
-        if (!aletheia_peek_u8(m, i, &b)) {
-            return false;
-        }
-        if ((char)b != expect[i]) {
+        if (!aletheia_peek_u8(m, boot.addr + i, &b) ||
+            (char)b != expect[i]) {
             return false;
         }
         putchar((int)b);
@@ -1117,104 +1980,250 @@ static bool aletheia_check_boot(const struct AletheiaMem *m) {
     return true;
 }
 
-static bool aletheia_check_stack(const struct AletheiaMem *m) {
+static bool aletheia_check_stack(const struct AletheiaMem *m,
+                                 const struct AletheiaTape *t) {
+    struct AletheiaStore full;
+    struct AletheiaSpan stack = aletheia_regions[REGION_STACK].span;
+    AletheiaAddr end = 0u;
+    AletheiaAddr frame_addr;
+    AletheiaAddr ret_addr;
     uint32_t frame = 0u;
     uint32_t ret = 0u;
-    if (!aletheia_read_u32(m, 0x3f1f8u, &frame) ||
-        !aletheia_read_u32(m, 0x3f1fcu, &ret)) {
+    if (!aletheia_tape_store(m, t, &full) ||
+        !aletheia_span_end(m, stack, &end)) {
+        return false;
+    }
+    frame_addr = end - 8u;
+    ret_addr = end - 4u;
+    if (!aletheia_store_read_u32(m, &full, frame_addr, &frame) ||
+        !aletheia_store_read_u32(m, &full, ret_addr, &ret)) {
         return false;
     }
     printf("\nSTACK\n");
-    printf("SP     0x3f1f8\n");
+    printf("SP     0x%05x\n", (unsigned)frame_addr);
     printf("FRAME  %u\n", (unsigned)frame);
     printf("RET    0x%05x\n", (unsigned)ret);
     return frame == 42u && ret == 0x00100u;
 }
 
-static bool aletheia_check_cover(const struct AletheiaTape *t) {
+static bool aletheia_check_span(const struct AletheiaMem *m) {
+    static const char signature[8] = {
+        'A', 'L', 'E', 'T', 'H', 'E', 'I', 'A'
+    };
+    struct AletheiaSpan machine = aletheia_span_new(0u, ALETHEIA_SIZE);
+    struct AletheiaSpan scratch;
+    bool okay = true;
+    bool ordered = true;
+    bool disjoint = true;
+    bool inside = true;
+    bool copied;
+    uint32_t i;
+    uint32_t j;
+    printf("\nSPAN\n");
+    printf("LABEL START END   SIZE OK\n");
+    for (i = 0u; i < (uint32_t)REGION_COUNT; ++i) {
+        struct AletheiaSpan s = aletheia_regions[i].span;
+        AletheiaAddr end = 0u;
+        bool ok = aletheia_span_ok(m, s) &&
+                  aletheia_span_end(m, s, &end);
+        printf("%-5s 0x%05x 0x%05x %5u %s\n",
+               aletheia_regions[i].label, (unsigned)s.addr,
+               (unsigned)end, (unsigned)s.size,
+               ok ? "true" : "false");
+        if (!ok) {
+            okay = false;
+        }
+        if (!aletheia_span_contains(m, machine, s)) {
+            inside = false;
+        }
+        if (i > 0u) {
+            AletheiaAddr prev_end = 0u;
+            if (!aletheia_span_end(m, aletheia_regions[i - 1u].span,
+                                   &prev_end) ||
+                prev_end > s.addr) {
+                ordered = false;
+            }
+        }
+        for (j = i + 1u; j < (uint32_t)REGION_COUNT; ++j) {
+            if (aletheia_span_overlap(m, s,
+                                      aletheia_regions[j].span)) {
+                disjoint = false;
+            }
+        }
+    }
+    scratch = aletheia_span_new(
+        aletheia_regions[REGION_DATA].span.addr + 0x70u, 8u);
+    copied = aletheia_span_fill(m, scratch, 0u) &&
+             aletheia_span_copy(
+                 m, scratch,
+                 aletheia_span_new(
+                     aletheia_regions[REGION_BOOT].span.addr, 8u));
+    for (i = 0u; copied && i < 8u; ++i) {
+        AletheiaByte b = 0u;
+        if (!aletheia_peek_u8(m, scratch.addr + i, &b) ||
+            b != (AletheiaByte)signature[i]) {
+            copied = false;
+        }
+    }
+    printf("ORDER    %s\n", ordered ? "true" : "false");
+    printf("DISJOINT %s\n", disjoint ? "true" : "false");
+    printf("INSIDE   %s\n", inside ? "true" : "false");
+    printf("COPY     %s\n", copied ? "true" : "false");
+    return okay && ordered && disjoint && inside && copied;
+}
+
+static bool aletheia_check_cover(const struct AletheiaMem *m,
+                                 const struct AletheiaTape *t) {
     uint32_t covered = 0u;
     uint32_t gaps = 0u;
-    if (!aletheia_tape_cover(t, &covered, &gaps)) {
+    if (!aletheia_tape_cover(m, t, &covered, &gaps)) {
         return false;
     }
     printf("\nCOVER\n");
     printf("MARKED %u\n", (unsigned)covered);
     printf("GAPS   %u\n", (unsigned)gaps);
     printf("TOTAL  %u\n", (unsigned)(covered + gaps));
-    printf("ties   %s\n", covered + gaps == ALETHEIA_SIZE ? "true" : "false");
+    printf("ties   %s\n",
+           covered + gaps == ALETHEIA_SIZE ? "true" : "false");
     return covered + gaps == ALETHEIA_SIZE;
 }
 
-static bool aletheia_check_fail(void) {
-    struct AletheiaMem bad;
-    struct AletheiaMem m;
-    struct AletheiaTape small;
-    struct AletheiaTape overlap;
-    uint32_t value = 0u;
-    uint32_t addr = 0u;
-    uint32_t offsets[2];
-    uint32_t total = 0u;
-    static const struct AletheiaField bad_fields[2] = {
-        {"a", 4u, 3u},
-        {"b", 4u, 4u}
+static bool aletheia_check_fail(const struct AletheiaMem *m,
+                                const struct AletheiaTape *t) {
+    static const struct AletheiaFieldSpec bad_specs[2] = {
+        { 4u, 3u }, { 4u, 4u }
     };
-    bool range_bad;
-    bool read_bad;
-    bool write_bad;
-    bool width_bad;
+    struct AletheiaMem bad_mem;
+    struct AletheiaStore full;
+    struct AletheiaStore bad_store;
+    struct AletheiaPtr p4;
+    struct AletheiaPtr pa;
+    struct AletheiaPtr pb;
+    struct AletheiaPtr out;
+    struct AletheiaArr bytes;
+    struct AletheiaStruct bad_struct;
+    struct AletheiaStr bad_str;
+    struct AletheiaTape overlap;
+    struct AletheiaArr bad_arr;
+    uint32_t value = 0u;
+    AletheiaAddr addr = 0u;
+    int32_t delta = 0;
+    bool mem_range;
+    bool store_range;
+    bool read_tail;
+    bool write_tail;
+    bool bad_width;
     bool addr_bad;
-    bool overlap_bad;
+    bool ptr_bad;
+    bool diff_bad;
+    bool array_bad;
+    bool index_bad;
     bool layout_bad;
-    if (!aletheia_mem_make(&m, 0u, ALETHEIA_SIZE)) {
+    bool struct_bad;
+    bool string_bad;
+    bool overlap_bad;
+    if (!aletheia_tape_store(m, t, &full)) {
         return false;
     }
-    range_bad = !aletheia_mem_make(&bad, 0x3f000u, 0x2000u);
-    read_bad = !aletheia_read_u32(&m, 0x3ffffu, &value);
-    write_bad = !aletheia_write_u32(&m, 0x3ffffu, 1u);
-    width_bad = !aletheia_mem_read_le(&m, 0x01000u, 3u, &value);
-    addr_bad = !aletheia_addr_of(&m, 0x01000u, 0x40000000u, 4u, &addr);
-    overlap_bad = aletheia_tape_make(&small, 0u, 0x1000u) &&
-                  aletheia_tape_mark(&small, 0x100u, 0x100u, "first") &&
-                  aletheia_tape_make(&overlap, 0u, 0x1000u) &&
-                  aletheia_tape_mark(&overlap, 0x100u, 0x100u, "first") &&
-                  !aletheia_tape_mark(&overlap, 0x180u, 0x10u, "second");
-    layout_bad = !aletheia_layout_offsets(bad_fields, 2u, offsets, &total);
+    mem_range = !aletheia_mem_make(&bad_mem, 0x3f000u, 0x2000u);
+    store_range = !aletheia_store_make(m, 0x3f000u, 0x2000u,
+                                       &bad_store);
+    read_tail = !aletheia_store_read_u32(m, &full, 0x3ffffu, &value);
+    write_tail = !aletheia_store_write_u32(m, &full, 0x3ffffu, 1u);
+    bad_width = !aletheia_store_read_le(m, &full, 0x01000u, 3u,
+                                        &value);
+    addr_bad = !aletheia_addr_of(m, 0x01000u, 0x40000000u, 4u, &addr);
+    ptr_bad = aletheia_ptr_make(m, 0x01000u, 4u, &p4) &&
+              !aletheia_ptr_walk(m, p4, 0x40000000, &out);
+    diff_bad = aletheia_ptr_make(m, 0x01001u, 4u, &pa) &&
+               aletheia_ptr_make(m, 0x01004u, 4u, &pb) &&
+               !aletheia_ptr_diff(m, pa, pb, &delta);
+    array_bad = !aletheia_arr_make(m, 0x01000u, 4u, 0x40000000u,
+                                   &bad_arr);
+    index_bad = aletheia_arr_make(m, 0x01060u, 1u, 12u, &bytes) &&
+                !aletheia_arr_at(m, bytes, 12u, &out);
+    layout_bad = !aletheia_offset_table(m, 0x01000u, bad_specs, 2u,
+                                        &bad_struct);
+    bad_struct.addr = 0x01000u;
+    bad_struct.size = 12u;
+    bad_struct.field_count = 1u;
+    bad_struct.fields[0].offset = 0u;
+    bad_struct.fields[0].size = 4u;
+    bad_struct.fields[0].align = 3u;
+    struct_bad = !aletheia_struct_ok(m, &bad_struct);
+    string_bad = !aletheia_str_make(m, 0x3ffffu, 4u, &bad_str);
+    overlap_bad = aletheia_tape_make(m, 0u, 0x1000u, &overlap) &&
+                  aletheia_tape_mark(m, &overlap, 0x100u, 0x100u,
+                                     "first") &&
+                  !aletheia_tape_mark(m, &overlap, 0x180u, 0x10u,
+                                      "second");
     printf("\nFAIL\n");
-    printf("mem range    %s\n", range_bad ? "rejected" : "accepted");
-    printf("read tail    %s\n", read_bad ? "rejected" : "accepted");
-    printf("write tail   %s\n", write_bad ? "rejected" : "accepted");
-    printf("bad width    %s\n", width_bad ? "rejected" : "accepted");
-    printf("addr overflow %s\n", addr_bad ? "rejected" : "accepted");
-    printf("overlap mark %s\n", overlap_bad ? "rejected" : "accepted");
-    printf("bad layout   %s\n", layout_bad ? "rejected" : "accepted");
-    return range_bad && read_bad && write_bad && width_bad && addr_bad &&
-           overlap_bad && layout_bad;
+    printf("mem range     %s\n",
+           mem_range ? "rejected" : "accepted");
+    printf("store range   %s\n",
+           store_range ? "rejected" : "accepted");
+    printf("read tail     %s\n",
+           read_tail ? "rejected" : "accepted");
+    printf("write tail    %s\n",
+           write_tail ? "rejected" : "accepted");
+    printf("bad width     %s\n",
+           bad_width ? "rejected" : "accepted");
+    printf("addr overflow %s\n",
+           addr_bad ? "rejected" : "accepted");
+    printf("ptr walk      %s\n", ptr_bad ? "rejected" : "accepted");
+    printf("ptr diff      %s\n", diff_bad ? "rejected" : "accepted");
+    printf("array fit     %s\n",
+           array_bad ? "rejected" : "accepted");
+    printf("array index   %s\n",
+           index_bad ? "rejected" : "accepted");
+    printf("bad layout    %s\n",
+           layout_bad ? "rejected" : "accepted");
+    printf("bad struct    %s\n",
+           struct_bad ? "rejected" : "accepted");
+    printf("bad string    %s\n",
+           string_bad ? "rejected" : "accepted");
+    printf("overlap mark  %s\n",
+           overlap_bad ? "rejected" : "accepted");
+    return mem_range && store_range && read_tail && write_tail &&
+           bad_width && addr_bad && ptr_bad && diff_bad &&
+           array_bad && index_bad && layout_bad && struct_bad &&
+           string_bad && overlap_bad;
 }
 
 int main(void) {
     struct AletheiaMem machine;
     struct AletheiaTape tape;
+    struct AletheiaStruct record;
+    struct AletheiaStr text;
     bool ok_mem;
     bool ok_marks;
     bool ok_find;
     bool ok_paper;
     bool ok_ptr;
+    bool ok_array;
     bool ok_layout;
     bool ok_record;
     bool ok_string;
     bool ok_boot;
     bool ok_stack;
+    bool ok_span;
     bool ok_hex;
     bool ok_cover;
     bool ok_fail;
     bool ok;
+    uint32_t i;
     ok_mem = aletheia_mem_make(&machine, 0u, ALETHEIA_SIZE);
     if (!ok_mem) {
         printf("ALETHEIA MEM BROKEN\n");
         return 1;
     }
-    if (!aletheia_fill_boot(&machine) || !aletheia_fill_data(&machine) ||
-        !aletheia_build_tape(&tape)) {
+    if (!aletheia_fill_boot(&machine) ||
+        !aletheia_fill_data(&machine) ||
+        !aletheia_fill_stack(&machine) ||
+        !aletheia_build_record(&machine, &record) ||
+        !aletheia_fill_record(&machine, &record) ||
+        !aletheia_build_string(&machine, &text) ||
+        !aletheia_build_tape(&machine, &tape)) {
         printf("ALETHEIA MEM BROKEN\n");
         return 1;
     }
@@ -1222,40 +2231,57 @@ int main(void) {
     printf("SIZE  : %u\n", (unsigned)ALETHEIA_SIZE);
     printf("MACH  : 0x%05x..0x%05x\n", (unsigned)machine.base,
            (unsigned)(machine.base + machine.size - 1u));
-    printf("BOOT  : 0x00000..0x0003f\n");
-    printf("CODE  : 0x00100..0x002ff\n");
-    printf("DATA  : 0x01000..0x010ff\n");
-    printf("STACK : 0x3f000..0x3f1ff\n");
-    printf("FREE  : 0x3f200..0x3ffff\n");
+    for (i = 0u; i < (uint32_t)REGION_COUNT; ++i) {
+        const struct AletheiaSpan *s = &aletheia_regions[i].span;
+        printf("%-5s : 0x%05x..0x%05x\n", aletheia_regions[i].label,
+               (unsigned)s->addr,
+               (unsigned)(s->addr + s->size - 1u));
+    }
     printf("\n");
-    ok_marks = aletheia_check_marks(&tape);
-    ok_find = aletheia_check_find(&tape);
-    ok_paper = aletheia_check_paper(&machine);
+    ok_marks = aletheia_check_marks(&machine, &tape);
+    ok_find = aletheia_check_find(&machine, &tape);
+    ok_paper = aletheia_check_paper(&machine, &tape);
     ok_ptr = aletheia_check_ptr(&machine);
-    ok_layout = aletheia_check_layout();
-    ok_record = aletheia_check_record(&machine);
-    ok_string = aletheia_check_string(&machine);
+    ok_array = aletheia_check_array(&machine);
+    ok_layout = aletheia_check_layout(&machine, &record);
+    ok_record = aletheia_check_record(&machine, &record);
+    ok_string = aletheia_check_string(&machine, &text);
     ok_boot = aletheia_check_boot(&machine);
-    ok_stack = aletheia_check_stack(&machine);
+    ok_stack = aletheia_check_stack(&machine, &tape);
+    ok_span = aletheia_check_span(&machine);
     printf("\nHEXDUMP\n");
-    printf("ADDR    00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f  ASCII\n");
-    ok_hex = aletheia_hexdump(&machine, 0x01000u, 80u);
-    ok_cover = aletheia_check_cover(&tape);
-    ok_fail = aletheia_check_fail();
-    ok = ok_mem && ok_marks && ok_find && ok_paper && ok_ptr && ok_layout &&
-         ok_record && ok_string && ok_boot && ok_stack && ok_hex && ok_cover &&
-         ok_fail;
+    printf("ADDR    00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f  "
+           "ASCII\n");
+    {
+        struct AletheiaStore data;
+        if (!aletheia_store_make(
+                &machine, aletheia_regions[REGION_DATA].span.addr,
+                aletheia_regions[REGION_DATA].span.size, &data)) {
+            ok_hex = false;
+        } else {
+            ok_hex = aletheia_hexdump(
+                &machine, &data,
+                aletheia_regions[REGION_DATA].span.addr, 80u);
+        }
+    }
+    ok_cover = aletheia_check_cover(&machine, &tape);
+    ok_fail = aletheia_check_fail(&machine, &tape);
+    ok = ok_mem && ok_marks && ok_find && ok_paper && ok_ptr &&
+         ok_array && ok_layout && ok_record && ok_string && ok_boot &&
+         ok_stack && ok_span && ok_hex && ok_cover && ok_fail;
     printf("\nSUMMARY\n");
     printf("mem     : %s\n", ok_mem ? "true" : "false");
     printf("marks   : %s\n", ok_marks ? "true" : "false");
     printf("find    : %s\n", ok_find ? "true" : "false");
     printf("paper   : %s\n", ok_paper ? "true" : "false");
     printf("ptr     : %s\n", ok_ptr ? "true" : "false");
+    printf("array   : %s\n", ok_array ? "true" : "false");
     printf("layout  : %s\n", ok_layout ? "true" : "false");
     printf("record  : %s\n", ok_record ? "true" : "false");
     printf("string  : %s\n", ok_string ? "true" : "false");
     printf("boot    : %s\n", ok_boot ? "true" : "false");
     printf("stack   : %s\n", ok_stack ? "true" : "false");
+    printf("span    : %s\n", ok_span ? "true" : "false");
     printf("hexdump : %s\n", ok_hex ? "true" : "false");
     printf("cover   : %s\n", ok_cover ? "true" : "false");
     printf("fail    : %s\n", ok_fail ? "true" : "false");
@@ -1276,11 +2302,11 @@ int main(void) {
 ALETHEIA MEM
 SIZE  : 262144
 MACH  : 0x00000..0x3ffff
-BOOT  : 0x00000..0x0003f
-CODE  : 0x00100..0x002ff
-DATA  : 0x01000..0x010ff
-STACK : 0x3f000..0x3f1ff
-FREE  : 0x3f200..0x3ffff
+boot  : 0x00000..0x0003f
+code  : 0x00100..0x002ff
+data  : 0x01000..0x010ff
+stack : 0x3f000..0x3f1ff
+free  : 0x3f200..0x3ffff
 
 MARKS
 LABEL START END   SIZE
@@ -1315,15 +2341,22 @@ ADDR    BYTES       HEX      UNSIGNED   SIGNED
 0x0101c 00 00 00 80  80000000 2147483648 -2147483648
 
 PTR
-INDEX ADDR    EXPECT  OK
-    0 0x01000 0x01000 true
-    1 0x01004 0x01004 true
-    2 0x01008 0x01008 true
-    3 0x0100c 0x0100c true
-    4 0x01010 0x01010 true
-    5 0x01014 0x01014 true
-    6 0x01018 0x01018 true
-    7 0x0101c 0x0101c true
+INDEX ADDR    EXPECT  DELTA OK
+    0 0x01000 0x01000     0 true
+    1 0x01004 0x01004     1 true
+    2 0x01008 0x01008     2 true
+    3 0x0100c 0x0100c     3 true
+    4 0x01010 0x01010     4 true
+    5 0x01014 0x01014     5 true
+    6 0x01018 0x01018     6 true
+    7 0x0101c 0x0101c     7 true
+
+ARRAY
+BASE  0x01060
+COUNT 12
+SUM   78
+AT7   0x01067
+GRID  1,2 0x01066
 
 LAYOUT
 FIELD OFFSET SIZE
@@ -1341,6 +2374,8 @@ ADDR    FIELD VALUE
 0x01026 kind  1
 0x01027 tag   2
 0x01028 next  0x01000
+INSTANCE 0 0x01020
+INSTANCE 1 0x0102c
 
 STRING
 TEXT Aletheia
@@ -1353,6 +2388,18 @@ STACK
 SP     0x3f1f8
 FRAME  42
 RET    0x00100
+
+SPAN
+LABEL START END   SIZE OK
+boot  0x00000 0x00040    64 true
+code  0x00100 0x00300   512 true
+data  0x01000 0x01100   256 true
+stack 0x3f000 0x3f200   512 true
+free  0x3f200 0x40000  3584 true
+ORDER    true
+DISJOINT true
+INSIDE   true
+COPY     true
 
 HEXDUMP
 ADDR    00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f  ASCII
@@ -1369,13 +2416,20 @@ TOTAL  262144
 ties   true
 
 FAIL
-mem range    rejected
-read tail    rejected
-write tail   rejected
-bad width    rejected
+mem range     rejected
+store range   rejected
+read tail     rejected
+write tail    rejected
+bad width     rejected
 addr overflow rejected
-overlap mark rejected
-bad layout   rejected
+ptr walk      rejected
+ptr diff      rejected
+array fit     rejected
+array index   rejected
+bad layout    rejected
+bad struct    rejected
+bad string    rejected
+overlap mark  rejected
 
 SUMMARY
 mem     : true
@@ -1383,11 +2437,13 @@ marks   : true
 find    : true
 paper   : true
 ptr     : true
+array   : true
 layout  : true
 record  : true
 string  : true
 boot    : true
 stack   : true
+span    : true
 hexdump : true
 cover   : true
 fail    : true
@@ -1398,38 +2454,44 @@ ALETHEIA MEM OK
 
 `PAPER TAPE` 段打印八个 32 位值。每一行左边是地址，中间是四个字节，接着是十六进制值，最后是无符号和有符号两列。`0xffffffff` 的字节是 `ff ff ff ff`，无符号是 4294967295，有符号是 -1。`0xdeadbeef` 的字节是 `ef be ad de`，无符号是 3735928559，有符号是 -559038737。`0x80000000` 的无符号是 2147483648，有符号是 -2147483648。同一个位模式，两种解释，两列并排。
 
-`PTR` 段打印八个元素地址。起点 0x01000，步长 4，第八个元素在 0x0101C。每一行的 `ADDR` 和 `EXPECT` 相等，`OK` 为真。这张表验证了 $a_i=a_0+4i$，也验证了 `addr_of` 的 64 位乘法和边界检查。八个元素都在数据区内，没有越界，也没有尾指针。
+`PTR` 段打印八个元素地址。起点 0x01000，步长 4，第八个元素在 0x0101C。每一行的 `ADDR`、`EXPECT` 相等，`DELTA` 等于下标，`OK` 为真。这张表验证了 $a_i=a_0+4i$，也验证了 `ptr_walk`、`ptr_diff`、`addr_of` 三条路径算出同一个结果。
 
-`LAYOUT` 段打印五个字段的偏移和大小。`id` 在 0，`flags` 在 4，`kind` 在 6，`tag` 在 7，`next` 在 8，总大小 12。五个偏移和手算表一致。`RECORD` 段打印按这些偏移写入的字段值：`id=7`、`flags=3`、`kind=1`、`tag=2`、`next=0x01000`。写入用的是 `read_u32`、`read_le` 和 `peek`，没有直接下标数组。
+`ARRAY` 段打印 12 字节数组的基地址 0x01060、个数 12、和 78、第 7 个元素 0x01067、网格 `(1,2)` 的地址 0x01066。和是 $1+2+\cdots+12=78$；下标 7 的字节是 8；网格按行优先展开，`(1,2)` 是第 1 行第 2 列，展平下标是 $1\cdot4+2=6$，地址是 `0x01060+6=0x01066`。
+
+`LAYOUT` 段打印五个字段的偏移和大小。`id` 在 0，`flags` 在 4，`kind` 在 6，`tag` 在 7，`next` 在 8，总大小 12。五个偏移和手算表一致。`RECORD` 段打印按这些偏移写入的字段值：`id=7`、`flags=3`、`kind=1`、`tag=2`、`next=0x01000`。写入和读取都经过 `field_ptr` 加存储窗口，没有直接下标数组。`INSTANCE 0` 是 0x01020，`INSTANCE 1` 是 0x0102C，后者是前一个实例加 12 字节。
 
 `STRING` 段打印 `Aletheia` 和长度 8。`BOOT` 段打印启动签名 `ALETHEIA`。`STACK` 段打印栈顶地址 0x3F1F8、帧值 42、返回地址 0x00100。栈区从 0x3F000 到 0x3F1FF，栈顶在 0x3F200，两个字分别放在 0x3F1F8 和 0x3F1FC，正好在栈区的高端。
 
+`SPAN` 段打印五段区间的起点、终点、大小和有效性，然后打印四个布尔值：`ORDER` 为真表示五段按地址递增，`DISJOINT` 为真表示两两不重叠，`INSIDE` 为真表示五段都在整机内，`COPY` 为真表示启动签名的前八个字节复制到数据区暂存区后逐字节一致。`COPY` 这一项把 `span_fill` 和 `span_copy` 都跑了一遍：先清零，再复制，再读回。
+
 `HEXDUMP` 段打印数据区前 80 字节，五行。第一行是八个 32 位值的前四个，第二行是后四个，第三行是记录，第四行是零填充，第五行是字符串。十六进制列和 ASCII 列对齐，`Aletheia` 在最后一行开头。`COVER` 段打印覆盖 4928、空隙 257216、总计 262144，`ties` 为真。
 
-`FAIL` 段打印七种失败：机器描述符越界、尾部读越界、尾部写越界、宽度 3、地址乘法溢出、标注重叠、对齐不是 2 的幂。七种全部拒绝。失败时函数返回假，不修改内存，不崩溃。`SUMMARY` 段打印十三个布尔值，全部为真，最后一行 `ALETHEIA MEM OK`，返回码 0。
+`FAIL` 段打印十四种失败：机器窗口越界、存储窗口越界、尾部读越界、尾部写越界、宽度 3、地址乘法溢出、指针走步溢出、指针对不齐、数组总量溢出、数组下标越界、对齐不是 2 的幂、手工结构体对齐错误、字符串容量越界、标注重叠。十四种全部拒绝。失败时函数返回假，不修改内存，不崩溃。`SUMMARY` 段打印十五个布尔值，全部为真，最后一行 `ALETHEIA MEM OK`，返回码 0。
 
-验收标准有八条：
+验收标准有十条：
 
 1. 机器大小 262144 字节，地址范围 0x00000 到 0x3FFFF，所有访问都经过 `AletheiaMem`。
 2. 五个区域按地址排序、互不重叠、完全在机器内，覆盖 4928 字节，空隙 257216 字节，总和 262144。
 3. 八个 32 位值的字节、十六进制、无符号、有符号四列正确，全 1 显示 4294967295 和 -1。
-4. 八个元素地址满足 $a_i=a_0+4i$，逐项与 `addr_of` 的结果相等。
-5. 五个字段偏移 0、4、6、7、8 和总大小 12 与手算一致，记录字段按偏移正确读回。
-6. 字符串长度 8，启动签名 `ALETHEIA`，栈顶帧值 42、返回地址 0x00100。
-7. 十六进制转储五行，每行 16 字节，地址递增 16，ASCII 列正确。
-8. 七种非法操作全部拒绝，编译零警告，ASan/UBSan 无报错，输出确定且不超过 80 列。
+4. 八个元素地址满足 $a_i=a_0+4i$，`ptr_walk`、`ptr_diff`、`addr_of` 三方一致。
+5. 12 字节数组的和为 78，下标 7 的地址为 0x01067，网格 `(1,2)` 的地址为 0x01066。
+6. 五个字段偏移 0、4、6、7、8 和总大小 12 与手算一致，记录字段按偏移正确读回，第二个实例地址为 0x0102C。
+7. 字符串长度 8，启动签名 `ALETHEIA`，栈顶帧值 42、返回地址 0x00100。
+8. 五段区间排序、不重叠、都在机器内，8 字节复制逐字节一致。
+9. 十六进制转储五行，每行 16 字节，地址递增 16，ASCII 列正确。
+10. 十四种非法操作全部拒绝，编译零警告，ASan/UBSan 无报错，输出确定且不超过 80 列。
 
-八条全部通过，程序打印 `ALETHEIA MEM OK` 并返回 0。输出最宽一行 74 列，重复运行完全一致。程序不打印宿主地址、不打印时间、不依赖未初始化内存。启动签名、数据值、记录、字符串、栈值都在每次运行开始时重新写入，标注表在每次构造时清零，所有显示都能复现。
+十条全部通过，程序打印 `ALETHEIA MEM OK` 并返回 0。输出最宽一行 74 列，共 149 行，重复运行完全一致。程序不打印宿主地址、不打印时间、不依赖未初始化内存。启动签名、数据值、记录、字符串、栈值都在每次运行开始时重新写入，标注表在每次构造时清零，所有显示都能复现。
 
 这个程序也在 ASan 和 UBSan 下跑过。所有读写都先检查描述符和区间，所有标注都先检查排序和边界，所有地址乘法都用 64 位中间值，所有布局计算都检查对齐和溢出。两个消毒器都没有报错，输出和普通编译一致。程序没有动态分配，没有泄露，没有越界，没有未定义行为。
 
-如果某一项检查失败，输出会是什么样？对应段的布尔值变成假，`SUMMARY` 里那一行打印 `false`，最后一行打印 `ALETHEIA MEM BROKEN`，返回码变成 1。程序不会在第一次失败时停下，所以后面的段仍然会运行，读者能看到是一个地方坏了还是整片都坏了。比如 `PAPER TAPE` 失败，后面的 `PTR`、`LAYOUT` 仍然会打印，`SUMMARY` 里只有 `paper` 是假；再比如 `mem` 构造失败，程序在头部就打印 `ALETHEIA MEM BROKEN` 并返回 1，因为描述符不可用时后面的检查没有意义。两种失败路径都写死在 `main` 里，不靠异常，不靠 `setjmp`，不靠全局错误码。
+如果某一项检查失败，输出会是什么样？对应段的布尔值变成假，`SUMMARY` 里那一行打印 `false`，最后一行打印 `ALETHEIA MEM BROKEN`，返回码变成 1。程序不会在第一次失败时停下，所以后面的段仍然会运行，读者能看到是一个地方坏了还是整片都坏了。比如 `ARRAY` 失败，后面的 `LAYOUT`、`RECORD` 仍然会打印，`SUMMARY` 里只有 `array` 是假；再比如 `mem` 构造失败，程序在头部就打印 `ALETHEIA MEM BROKEN` 并返回 1，因为描述符不可用时后面的检查没有意义。两种失败路径都写死在 `main` 里，不靠异常，不靠 `setjmp`，不靠全局错误码。
 
-总装程序能证明什么，不能证明什么，要分开。它能证明：在同一块数组上，九个零件的边界检查互相一致；所有读写都经过同一个入口；覆盖等式成立；指针公式、布局公式、小端公式都能落到可执行的检查。它不能证明：这台机器能跑一段真正的程序，因为第三卷才有指令；它能分配内存，因为第二卷才有分配器；它能处理任意输入，因为演示数据是固定的。总装是地基验收，不是整机验收。整机验收要等第四卷。
+总装程序能证明什么，不能证明什么，要分开。它能证明：在同一块数组上，九种看法的边界检查互相一致；所有读写都经过同一个入口；覆盖等式成立；指针公式、数组公式、布局公式、小端公式都能落到可执行的检查；七种视图都能在同一台机器上构造、写入、读回。它不能证明：这台机器能跑一段真正的程序，因为第三卷才有指令；它能分配内存，因为第二卷才有分配器；它能处理任意输入，因为演示数据是固定的。总装是地基验收，不是整机验收。整机验收要等第四卷。
 
 ## 九、交给第二卷
 
-这一章定义了 `AletheiaMem`，一个由起点和大小组成的机器描述符。它提供构造、有效性检查、字节读写、整数读写和地址算术。`aletheia_read_u32` 和 `aletheia_write_u32` 是第一卷的最终读写接口；`aletheia_addr_of` 是第一卷的最终地址接口；`aletheia_peek_u8` 和 `aletheia_poke_u8` 是所有访问的最后入口。
+这一章定义了 `AletheiaMem`，一个由起点和大小组成的机器描述符。在它之上，第一卷的七种视图全部接通：区间、指针、数组、结构体、字符串、存储、纸带。它们共享一块 256 KiB 数组，共享一套地址，共享一条从 `store_has` 到 `mem_has` 再到 `peek_u8` 和 `poke_u8` 的访问路径。
 
 交给第二卷的接口是：
 
@@ -1445,18 +2507,38 @@ bool aletheia_mem_ok(const struct AletheiaMem *m);
 bool aletheia_mem_has(const struct AletheiaMem *m, AletheiaAddr addr,
                       uint32_t width);
 bool aletheia_peek_u8(const struct AletheiaMem *m, AletheiaAddr addr,
-                       AletheiaByte *out);
+                      AletheiaByte *out);
 bool aletheia_poke_u8(const struct AletheiaMem *m, AletheiaAddr addr,
-                       AletheiaByte value);
-bool aletheia_read_u32(const struct AletheiaMem *m, AletheiaAddr addr,
-                           uint32_t *out);
+                      AletheiaByte value);
+bool aletheia_mem_read_le(const struct AletheiaMem *m, AletheiaAddr addr,
+                          uint32_t width, uint32_t *out);
+bool aletheia_mem_write_le(const struct AletheiaMem *m, AletheiaAddr addr,
+                           uint32_t width, uint32_t value);
 bool aletheia_write_u32(const struct AletheiaMem *m, AletheiaAddr addr,
-                            uint32_t value);
+                        uint32_t value);
 bool aletheia_addr_of(const struct AletheiaMem *m, AletheiaAddr base,
-                          uint32_t index, uint32_t elem_size,
-                          AletheiaAddr *out);
+                      uint32_t index, uint32_t elem_size,
+                      AletheiaAddr *out);
+
+bool aletheia_span_ok(const struct AletheiaMem *m,
+                      struct AletheiaSpan s);
+bool aletheia_ptr_make(const struct AletheiaMem *m, AletheiaAddr addr,
+                       uint32_t elem_size, struct AletheiaPtr *out);
+bool aletheia_arr_make(const struct AletheiaMem *m, AletheiaAddr addr,
+                       uint32_t elem_size, uint32_t count,
+                       struct AletheiaArr *out);
+bool aletheia_offset_table(const struct AletheiaMem *m,
+                           AletheiaAddr base,
+                           const struct AletheiaFieldSpec *spec,
+                           uint32_t n, struct AletheiaStruct *out);
+bool aletheia_str_make(const struct AletheiaMem *m, AletheiaAddr addr,
+                       uint32_t capacity, struct AletheiaStr *out);
+bool aletheia_store_make(const struct AletheiaMem *m, AletheiaAddr base,
+                         uint32_t size, struct AletheiaStore *out);
+bool aletheia_tape_make(const struct AletheiaMem *m, AletheiaAddr base,
+                        uint32_t size, struct AletheiaTape *out);
 ```
 
-第二卷会在这个描述符上盖分配器。分配器把一块大区域切成小块，每块有一个块头，块头记录大小和状态；空闲块串成链表；分配时找到足够大的块，必要时拆分；释放时把块标成空闲，必要时和相邻块合并。所有块头、链表指针、用户数据都住在同一块 256 KiB 数组里，所有读写仍然经过 `AletheiaMem`。第一卷给的 `base`、`size`、`read_u32`、`write_u32`、`addr_of` 就是第二卷的全部地基。
+第二卷会在这个描述符上盖分配器。分配器把一块大区域切成小块，每块有一个块头，块头记录大小和状态；空闲块串成链表；分配时找到足够大的块，必要时拆分；释放时把块标成空闲，必要时和相邻块合并。所有块头、链表指针、用户数据都住在同一块 256 KiB 数组里，所有读写仍然经过 `AletheiaMem`。第一卷给的 `base`、`size`、`mem_read_le`、`mem_write_le`、`addr_of`，以及区间、指针、数组、结构体、字符串、存储、纸带七种视图，就是第二卷的全部地基。
 
 第一卷到此结束。九章，九个零件，一块内存。第一章看到一个字节，第二章看到一段区间，第三章看到负数，第四章看到指针，第五章看到数组，第六章看到结构体，第七章看到字符串，第八章看到整数，第九章看到纸带，第十章看到整台机器。下一卷从这台机器上切第一块内存，给它装上块头，串成链表，让“有什么”变成“怎么放”。

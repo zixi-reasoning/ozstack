@@ -6,7 +6,7 @@
 
 ## 一、一个字节不知道自己的长度
 
-上一章结束时，我们手里有四样东西：一个字节，一个地址，一次读，一次写。我们把 0x41 写到 0x00008，再读回来；把 0xff 写到 0x0000a，再加一，看它回到 0。终端打印出来的每一行都对得上。
+上一章结束时，我们手里有四样东西：一个字节，一个地址，一次读，一次写。我们把 0x41 写到 0x00008，再读回来；把 0xff 写到 0x0000c，再加一，看它回到 0。终端打印出来的每一行都对得上。
 
 那是一台很小的机器，小到只认识颗粒和位置。它不知道变量，不知道类型，也不知道一个东西从哪里开始、到哪里结束。它只会说：这个地址上有一个字节。
 
@@ -120,7 +120,7 @@ $$
 
 $T$ 是一个类型，$s_T$ 是这个类型的一个对象占多少字节。`sizeof` 不是函数，是运算符；对定长类型，它在编译时求值，不产生运行时调用。它的单位是字节。按 C 的定义，`sizeof(char)` 恒等于 1，其他类型的大小都是这个单位的倍数。
 
-`sizeof` 返回的类型是 `size_t`，一个无符号整数类型，专门用来表示大小和下标。它不是地址。地址是位置，大小是数量；两者都是无符号整数，但含义不同。第一章的 `AletheiaAddr` 是 32 位，因为我们把机器的地址宽度钉死在 32 位；`size_t` 的宽度跟着平台走，64 位机器上通常是 64 位。宽度不同不是问题，因为长度最终会被边界检查压回到 $[0,N]$。
+`sizeof` 返回的类型是 `size_t`，一个无符号整数类型，专门用来表示大小和下标。它不是地址。地址是位置，大小是数量；两者都是无符号整数，但含义不同。第一章的 `AletheiaAddr` 是 32 位，因为我们把机器的地址宽度钉死在 32 位；`size_t` 的宽度跟着平台走，64 位机器上通常是 64 位。宽度不同不是问题，但本书的规矩是：进入机器的量必须定宽。所以 `AletheiaSpan` 的长度用 `uint32_t`，和地址同宽，装得下 262144，也不随宿主变化。`size_t` 只留在宿主代码的循环下标里。
 
 在这台机器上，我们只用定宽整数。`uint8_t` 是 1 字节，`uint16_t` 是 2 字节，`uint32_t` 是 4 字节。不要把 `int` 当成 4 字节：C 只保证 `int` 至少 16 位，不保证它是 32 位。定宽类型把这件事钉死，换一台机器，长度不变。
 
@@ -154,7 +154,7 @@ if (aletheia_addr_ok(addr) && size <= ALETHEIA_ADDR_MAX - addr) {
 }
 ```
 
-第一行里，如果 `addr` 和 `size` 都是 32 位无符号数，加法会在 32 位里回绕。如果在 64 位宿主上 `size` 恰好是 `size_t`，加法被提升到 64 位，可能碰巧不回绕，于是这个 bug 在开发机上藏起来，换一台机器才出现。第二行不依赖提升：先确认 `addr` 是合法地址，再在 32 位无符号里做减法，差一定在 `[0,N]` 里。换一台宿主，第二行还是对的。
+第一行里，如果 `addr` 和 `size` 都是 32 位无符号数，加法会在 32 位里回绕。有人会说，把 `size` 换成 `size_t`，在 64 位宿主上加法就被提升到 64 位，可能碰巧不回绕。这是把正确性寄托在宿主字宽上：换一台 32 位宿主，同一个 bug 就回来了。第二行不依赖提升：先确认 `addr` 是合法地址，再在 32 位无符号里做减法，差一定在 `[0,N]` 里。换一台宿主，第二行还是对的。
 
 第二条法律：一个区间是否包含另一个区间。$[b,b+t)\subseteq[a,a+s)$ 当且仅当：
 
@@ -261,7 +261,7 @@ $$
 ```c
 struct AletheiaSpan {
     AletheiaAddr addr;
-    size_t size;
+    uint32_t size;
 };
 ```
 
@@ -270,7 +270,7 @@ struct AletheiaSpan {
 然后写构造函数和合法性检查：
 
 ```c
-static struct AletheiaSpan aletheia_span_new(AletheiaAddr addr, size_t size) {
+static struct AletheiaSpan aletheia_span_new(AletheiaAddr addr, uint32_t size) {
     struct AletheiaSpan s;
     s.addr = addr;
     s.size = size;
@@ -284,7 +284,7 @@ static bool aletheia_span_ok(struct AletheiaSpan s) {
     if (!aletheia_addr_ok(s.addr)) {
         return false;
     }
-    return s.size <= (size_t)(ALETHEIA_ADDR_MAX - s.addr);
+    return s.size <= ALETHEIA_ADDR_MAX - s.addr;
 }
 ```
 
@@ -292,9 +292,9 @@ static bool aletheia_span_ok(struct AletheiaSpan s) {
 
 `aletheia_span_new` 按值返回结构体。结构体只有两个字段，按值返回不会复制一大块内存；编译器很可能把它放进两个寄存器。按值返回还有一个好处：调用者拿到的是一个独立的值，不需要担心谁拥有它、谁负责释放它。区间是值，不是资源。资源才需要所有权，值不需要。
 
-`aletheia_span_ok` 按顺序做三件事。长度是不是 0；起点是不是在地址空间里；长度是不是超过剩余空间。第三条写的是 `s.size <= ALETHEIA_ADDR_MAX - s.addr`，不是 `s.addr + s.size <= ALETHEIA_ADDR_MAX`。前者不会溢出，后者可能回绕。`s.addr` 是 `uint32_t`，`ALETHEIA_ADDR_MAX` 也是；两者相减得到一个 `uint32_t`，因为已经先检查过 `s.addr < ALETHEIA_ADDR_MAX`，差是正的，不会回绕。然后转成 `size_t` 再和 `s.size` 比。这一步转型是安全的，因为差最大是 262144，装得进 `size_t`。
+`aletheia_span_ok` 按顺序做三件事。长度是不是 0；起点是不是在地址空间里；长度是不是超过剩余空间。第三条写的是 `s.size <= ALETHEIA_ADDR_MAX - s.addr`，不是 `s.addr + s.size <= ALETHEIA_ADDR_MAX`。前者不会溢出，后者可能回绕。`s.addr` 是 `uint32_t`，`ALETHEIA_ADDR_MAX` 也是；两者相减得到一个 `uint32_t`，因为已经先检查过 `s.addr < ALETHEIA_ADDR_MAX`，差是正的，不会回绕。`s.size` 也是 `uint32_t`，所以这次比较全程在 32 位无符号里完成，不需要任何收窄。
 
-`struct AletheiaSpan` 里的长度用 `size_t`，不用 `AletheiaAddr`。两者都是无符号整数，但含义不同：地址是位置，长度是数量。用不同的类型名字，读代码的人一眼就知道哪个是哪个。`size_t` 的宽度跟着宿主走，可能比 32 位宽；`aletheia_span_ok` 会把长度压回到不超过 262144，所以它最终装得进地址。接口不假设宿主的字宽，只在检查通过以后做一次收窄。
+`struct AletheiaSpan` 里的长度用 `uint32_t`，不用 `size_t`。两者都能表示 262144，但 `size_t` 的宽度跟着宿主走，写进机器就不确定了；`uint32_t` 是定宽的，和 `AletheiaAddr` 同宽。地址和长度仍然是两个含义，用两个字段名区分：`addr` 是位置，`size` 是数量。接口不假设宿主字宽，所有进入机器的量都在 32 位里算。
 
 接着写终点：
 
@@ -308,21 +308,21 @@ static bool aletheia_span_end(struct AletheiaSpan s, AletheiaAddr *out) {
 }
 ```
 
-终点不是随时能算的。只有合法的区间才有终点。函数先验证，再计算，最后通过输出参数把结果送回去。为什么不用一个 `aletheia_span_end_bad` 直接返回 `a+s`？因为对非法区间，`a+s` 不是一个终点，只是一个碰巧算出来的数。给它一个名字，会让人以为它有意义。返回 `bool`，把“能不能算”和“算出来是多少”分开，这和第一章读字节时值和状态分开是同一个道理。
+终点不是随时能算的。只有合法的区间才有终点。函数先验证，再计算，最后通过输出参数把结果送回去。为什么不写一个直接返回 `a+s` 的函数？因为对非法区间，`a+s` 不是一个终点，只是一个碰巧算出来的数。给它一个名字，会让人以为它有意义。返回 `bool`，把“能不能算”和“算出来是多少”分开，这和第一章读字节时值和状态分开是同一个道理。
 
 然后是包含和重叠：
 
 ```c
 static bool aletheia_span_contains(struct AletheiaSpan outer,
                                    struct AletheiaSpan inner) {
-    size_t delta;
+    uint32_t delta;
     if (!aletheia_span_ok(outer) || !aletheia_span_ok(inner)) {
         return false;
     }
     if (inner.addr < outer.addr) {
         return false;
     }
-    delta = (size_t)(inner.addr - outer.addr);
+    delta = inner.addr - outer.addr;
     if (delta > outer.size) {
         return false;
     }
@@ -478,8 +478,8 @@ struct AletheiaVar {
 #include <stdint.h>
 #include <stdio.h>
 
-#define ALETHEIA_SIZE ((size_t)256 * 1024)
-#define ALETHEIA_ADDR_MAX ((uint32_t)ALETHEIA_SIZE)
+#define ALETHEIA_SIZE ((uint32_t)256 * 1024)
+#define ALETHEIA_ADDR_MAX ALETHEIA_SIZE
 
 typedef uint8_t AletheiaByte;
 typedef uint32_t AletheiaAddr;
@@ -491,7 +491,7 @@ typedef char aletheia_check_u32[(sizeof(uint32_t) == 4) ? 1 : -1];
 
 struct AletheiaSpan {
     AletheiaAddr addr;
-    size_t size;
+    uint32_t size;
 };
 
 struct AletheiaVar {
@@ -521,7 +521,7 @@ static bool aletheia_poke_u8(AletheiaAddr addr, AletheiaByte value) {
     return true;
 }
 
-static struct AletheiaSpan aletheia_span_new(AletheiaAddr addr, size_t size) {
+static struct AletheiaSpan aletheia_span_new(AletheiaAddr addr, uint32_t size) {
     struct AletheiaSpan s;
     s.addr = addr;
     s.size = size;
@@ -535,7 +535,7 @@ static bool aletheia_span_ok(struct AletheiaSpan s) {
     if (!aletheia_addr_ok(s.addr)) {
         return false;
     }
-    return s.size <= (size_t)(ALETHEIA_ADDR_MAX - s.addr);
+    return s.size <= ALETHEIA_ADDR_MAX - s.addr;
 }
 
 static bool aletheia_span_end(struct AletheiaSpan s, AletheiaAddr *out) {
@@ -548,14 +548,14 @@ static bool aletheia_span_end(struct AletheiaSpan s, AletheiaAddr *out) {
 
 static bool aletheia_span_contains(struct AletheiaSpan outer,
                                    struct AletheiaSpan inner) {
-    size_t delta;
+    uint32_t delta;
     if (!aletheia_span_ok(outer) || !aletheia_span_ok(inner)) {
         return false;
     }
     if (inner.addr < outer.addr) {
         return false;
     }
-    delta = (size_t)(inner.addr - outer.addr);
+    delta = inner.addr - outer.addr;
     if (delta > outer.size) {
         return false;
     }
@@ -612,12 +612,12 @@ static bool aletheia_span_copy(struct AletheiaSpan dst,
 static void aletheia_print_span(const char *name, struct AletheiaSpan s) {
     AletheiaAddr end;
     if (!aletheia_span_end(s, &end)) {
-        printf("%-5s invalid  addr=0x%05x  size=%lu\n",
-               name, (unsigned)s.addr, (unsigned long)s.size);
+        printf("%-5s invalid  addr=0x%05x  size=%u\n",
+               name, (unsigned)s.addr, (unsigned)s.size);
         return;
     }
-    printf("%-5s [0x%05x, 0x%05x)  size=%lu\n",
-           name, (unsigned)s.addr, (unsigned)end, (unsigned long)s.size);
+    printf("%-5s [0x%05x, 0x%05x)  size=%u\n",
+           name, (unsigned)s.addr, (unsigned)end, (unsigned)s.size);
 }
 
 static void aletheia_print_bytes(struct AletheiaSpan s) {
@@ -657,11 +657,11 @@ static void aletheia_print_vars(void) {
     for (i = 0; i < ALETHEIA_VAR_COUNT; ++i) {
         AletheiaAddr end = 0;
         if (aletheia_span_end(aletheia_vars[i].span, &end)) {
-            printf("%-6s0x%05x  0x%05x  %4lu\n",
+            printf("%-6s0x%05x  0x%05x  %4u\n",
                    aletheia_vars[i].name,
                    (unsigned)aletheia_vars[i].span.addr,
                    (unsigned)end,
-                   (unsigned long)aletheia_vars[i].span.size);
+                   (unsigned)aletheia_vars[i].span.size);
         }
     }
 }
@@ -751,7 +751,7 @@ int main(void) {
     AletheiaByte value = 0;
 
     printf("ALETHEIA SPAN\n");
-    printf("SIZE       : %lu bytes\n", (unsigned long)ALETHEIA_SIZE);
+    printf("SIZE       : %u bytes\n", (unsigned)ALETHEIA_SIZE);
     printf("ADDR RANGE : 0x00000..0x3ffff\n");
     printf("sizeof(u8) : %lu\n", (unsigned long)sizeof(uint8_t));
     printf("sizeof(u16): %lu\n", (unsigned long)sizeof(uint16_t));

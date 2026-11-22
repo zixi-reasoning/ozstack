@@ -13,6 +13,15 @@ export const BOOKS = [
     chapters: [
       { text: '导读', link: '/gufa/introduction/' },
       { text: '1. 字节与地址', link: '/gufa/ch1/' },
+      { text: '2. 变量是区间', link: '/gufa/ch2/' },
+      { text: '3. 补码', link: '/gufa/ch3/' },
+      { text: '4. 指针算术', link: '/gufa/ch4/' },
+      { text: '5. 连续数组', link: '/gufa/ch5/' },
+      { text: '6. 结构体偏移', link: '/gufa/ch6/' },
+      { text: '7. 字符串', link: '/gufa/ch7/' },
+      { text: '8. 字节读写', link: '/gufa/ch8/' },
+      { text: '9. 纸带台', link: '/gufa/ch9/' },
+      { text: '10. 总装 AletheiaMem', link: '/gufa/ch10/' },
     ],
   },
   {

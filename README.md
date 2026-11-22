@@ -15,7 +15,7 @@
 
 | 书 | 导读 | 在线地址 | 状态 |
 | --- | --- | --- | --- |
-| 古法编程大力玩 | [导读](./docs/gufa/introduction/index.md) | [打开](https://zixi-reasoning.github.io/ozstack/gufa/introduction/) | 导读、第一章完成，正文按卷推进 |
+| 古法编程大力玩 | [导读](./docs/gufa/introduction/index.md) | [打开](https://zixi-reasoning.github.io/ozstack/gufa/introduction/) | 导读、第一卷完成，正文按卷推进 |
 | 计算科学大力丸 | [导读](./docs/jisuan/introduction/index.md) | [打开](https://zixi-reasoning.github.io/ozstack/jisuan/introduction/) | 导读完成，正文按卷推进 |
 
 第一册四卷：
@@ -67,6 +67,24 @@ docs/
       index.md                  古法编程大力玩，导读
     ch1/
       index.md                  第一章，字节与地址
+    ch2/
+      index.md                  第二章，变量是区间
+    ch3/
+      index.md                  第三章，补码
+    ch4/
+      index.md                  第四章，指针算术
+    ch5/
+      index.md                  第五章，连续数组
+    ch6/
+      index.md                  第六章，结构体偏移
+    ch7/
+      index.md                  第七章，字符串
+    ch8/
+      index.md                  第八章，字节读写
+    ch9/
+      index.md                  第九章，纸带台
+    ch10/
+      index.md                  第十章，总装 AletheiaMem
   jisuan/
     introduction/
       index.md                  计算科学大力丸，导读
@@ -120,6 +138,15 @@ DOCS_BASE=/ozstack/ npm run docs:build
 | --- | --- |
 | `docs/gufa/introduction/index.md` | 第一册导读：AI 时代为什么还要从字节和数组手搓 |
 | `docs/gufa/ch1/index.md` | 第一章：字节与地址，定义 AletheiaByte |
+| `docs/gufa/ch2/index.md` | 第二章：变量是区间，定义 AletheiaSpan |
+| `docs/gufa/ch3/index.md` | 第三章：补码，定义 AletheiaInt |
+| `docs/gufa/ch4/index.md` | 第四章：指针算术，定义 AletheiaPtr |
+| `docs/gufa/ch5/index.md` | 第五章：连续数组，定义 AletheiaArr |
+| `docs/gufa/ch6/index.md` | 第六章：结构体偏移，定义 AletheiaStruct |
+| `docs/gufa/ch7/index.md` | 第七章：字符串，定义 AletheiaStr |
+| `docs/gufa/ch8/index.md` | 第八章：字节读写，定义 AletheiaStore |
+| `docs/gufa/ch9/index.md` | 第九章：纸带台，定义 AletheiaTape |
+| `docs/gufa/ch10/index.md` | 第十章：总装 AletheiaMem，第一卷收束 |
 | `docs/jisuan/introduction/index.md` | 第二册导读：机器造好之后怎样用它做数学 |
 | `docs/index.md` | 首页、两本书入口、手搓大力丸 |
 | `docs/.vitepress/books.mjs` | 两本书的章目录 |
